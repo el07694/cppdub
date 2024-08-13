@@ -107,46 +107,45 @@ AudioSegment AudioSegment::from_file(const std::string& file_path, const std::st
     return AudioSegment(reinterpret_cast<uint8_t*>(output.data()), output.size(), metadata);
 }
 
-// Method to remove DC offset
+// Implementation of remove_dc_offset
 AudioSegment AudioSegment::remove_dc_offset(int channel, int offset) const {
-    if ((channel != 0 && channel != 1 && channel != 2) || (offset != 0 && (offset < -1 || offset > 1))) {
-        throw std::invalid_argument("Invalid channel or offset value.");
+    if (channel && (channel < 1 || channel > 2)) {
+        throw std::invalid_argument("channel value must be None, 1 (left) or 2 (right)");
+    }
+    if (offset && (offset < -1.0 || offset > 1.0)) {
+        throw std::invalid_argument("offset value must be in range -1.0 to 1.0");
     }
 
-    std::vector<char> data = data_;
-
-    // Convert offset from -1.0 to 1.0 range to the appropriate integer offset
     if (offset) {
-        offset = static_cast<int>(std::round(offset * max_possible_amplitude()));
+        offset = static_cast<int>(round(offset * max_possible_amplitude()));
     }
 
-    auto remove_data_dc = [&](const std::vector<char>& data, int off) {
-        if (off == 0) {
-            off = static_cast<int>(avg(data, sample_width_));
+    auto remove_data_dc = [this, offset](const std::vector<char>& data) {
+        if (!offset) {
+            offset = static_cast<int>(round(avg(data, sample_width_)));
         }
-        return bias(data, sample_width_, -off);
+        return bias(data, sample_width_, -offset);
     };
 
     if (channels_ == 1) {
-        return spawn(remove_data_dc(data, offset), {});
+        return spawn(remove_data_dc(data_));
     }
 
-    std::vector<char> left_channel = tomono(data, sample_width_, 1, 0);
-    std::vector<char> right_channel = tomono(data, sample_width_, 0, 1);
+    auto left_channel = tomono(data_, sample_width_, 1, 0);
+    auto right_channel = tomono(data_, sample_width_, 0, 1);
 
-    if (channel == 0 || channel == 1) {
-        left_channel = remove_data_dc(left_channel, offset);
+    if (!channel || channel == 1) {
+        left_channel = remove_data_dc(left_channel);
     }
 
-    if (channel == 0 || channel == 2) {
-        right_channel = remove_data_dc(right_channel, offset);
+    if (!channel || channel == 2) {
+        right_channel = remove_data_dc(right_channel);
     }
 
     left_channel = tostereo(left_channel, sample_width_, 1, 0);
     right_channel = tostereo(right_channel, sample_width_, 0, 1);
 
-    std::vector<char> combined_data = add(left_channel, right_channel, sample_width_);
-    return spawn(combined_data, {});
+    return spawn(add(left_channel, right_channel, sample_width_));
 }
 
 // Implementation of the rms method
