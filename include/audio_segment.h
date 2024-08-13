@@ -209,6 +209,18 @@ public:
      */
     AudioSegment fade(double to_gain = 0, double from_gain = 0, 
                       int start = -1, int end = -1, int duration = -1) const;
+	
+	// Declaration of fade_out method
+	AudioSegment fade_out(int duration) const;
+
+	// Declaration of fade_in method
+	AudioSegment fade_in(int duration) const;
+	
+	// Declaration of reverse method
+	AudioSegment reverse() const;
+	
+	// Declaration of _repr_html_ method
+	std::string repr_html() const;
 
 	// Declaration of the split_to_mono method
 	std::vector<AudioSegment> split_to_mono() const;
