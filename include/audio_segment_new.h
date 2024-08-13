@@ -183,9 +183,6 @@ public:
 	// Declaration of the max method
 	int max() const;
 	
-	// Declaration of the max_possible_amplitude method
-	double max_possible_amplitude() const;
-	
 	// Declaration of the max_dBFS method
 	double max_dBFS() const;
 	
@@ -197,6 +194,7 @@ public:
 	
 	// Declaration of the remove_dc_offset method
     AudioSegment remove_dc_offset(int channel = 0, int offset = 0) const;
+    double max_possible_amplitude() const;
 
 
     // Spawn a new AudioSegment with the given data and optional metadata overrides
