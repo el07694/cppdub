@@ -25,6 +25,7 @@
 #include <cassert>
 #include <iostream>
 #include <string>
+#include <tuple>
 
 
 // Add other necessary includes
@@ -42,6 +43,16 @@
 #include <libavutil/log.h>
 
 namespace cppdub {
+	
+// Helper function to convert dB to linear float
+double db_to_float(double db) {
+    return std::pow(10.0, db / 20.0);
+}
+
+// Helper function to convert milliseconds to frame count
+int milliseconds_to_frames(int milliseconds, int frame_rate) {
+    return static_cast<int>((milliseconds / 1000.0) * frame_rate);
+}
 
 // Static member initialization
 std::string AudioSegment::ffmpeg_converter_ = "ffmpeg";
@@ -105,6 +116,81 @@ AudioSegment AudioSegment::from_file(const std::string& file_path, const std::st
     };
 
     return AudioSegment(reinterpret_cast<uint8_t*>(output.data()), output.size(), metadata);
+}
+
+// Implementation of the fade method
+AudioSegment AudioSegment::fade(double to_gain, double from_gain, 
+                                int start, int end, int duration) const {
+    if ((start != -1 && end != -1 && duration != -1) ||
+        (start == -1 && end == -1 && duration == -1)) {
+        throw std::invalid_argument("Only two of the three arguments, 'start', 'end', and 'duration' may be specified");
+    }
+
+    // No fade == the same audio
+    if (to_gain == 0 && from_gain == 0) {
+        return *this;
+    }
+
+    // Adjust start and end
+    int length = this->duration(); // Assuming you have a method to get duration in milliseconds
+    start = (start != -1) ? std::min(length, start) : 0;
+    end = (end != -1) ? std::min(length, end) : length;
+
+    if (start < 0) start += length;
+    if (end < 0) end += length;
+
+    if (duration < 0) {
+        duration = end - start;
+    } else {
+        if (start != -1) end = start + duration;
+        else if (end != -1) start = end - duration;
+    }
+
+    if (duration <= 0) duration = end - start;
+
+    double from_power = db_to_float(from_gain);
+    double gain_delta = db_to_float(to_gain) - from_power;
+
+    std::vector<char> output;
+
+    // Original data before fade
+    std::vector<char> before_fade = this->slice(0, start).raw_data(); // Assuming `slice` method exists
+    if (from_gain != 0) {
+        before_fade = audioop::mul(before_fade, this->sample_width(), from_power); // Assuming `audioop::mul` exists
+    }
+    output.insert(output.end(), before_fade.begin(), before_fade.end());
+
+    // Fade logic
+    if (duration > 100) {
+        double scale_step = gain_delta / duration;
+        for (int i = 0; i < duration; ++i) {
+            double volume_change = from_power + (scale_step * i);
+            std::vector<char> chunk = this->slice(start + i, start + i + 1).raw_data(); // Slice 1 sample
+            chunk = audioop::mul(chunk, this->sample_width(), volume_change);
+            output.insert(output.end(), chunk.begin(), chunk.end());
+        }
+    } else {
+        int start_frame = this->frame_count(start);
+        int end_frame = this->frame_count(end);
+        int fade_frames = end_frame - start_frame;
+        double scale_step = gain_delta / fade_frames;
+
+        for (int i = 0; i < fade_frames; ++i) {
+            double volume_change = from_power + (scale_step * i);
+            std::vector<char> sample = this->get_frame(start_frame + i); // Assuming `get_frame` method exists
+            sample = audioop::mul(sample, this->sample_width(), volume_change);
+            output.insert(output.end(), sample.begin(), sample.end());
+        }
+    }
+
+    // Original data after fade
+    std::vector<char> after_fade = this->slice(end).raw_data();
+    if (to_gain != 0) {
+        after_fade = audioop::mul(after_fade, this->sample_width(), db_to_float(to_gain));
+    }
+    output.insert(output.end(), after_fade.begin(), after_fade.end());
+
+    return this->spawn(output); // Assuming `spawn` method exists and works with raw data
 }
 
 // Implementation of remove_dc_offset
@@ -734,6 +820,100 @@ AudioSegment AudioSegment::apply_gain(int db) const {
     return result;
 }
 
+
+AudioSegment AudioSegment::overlay(const AudioSegment& seg, int position, bool loop, int times, int gain_during_overlay) const {
+    if (loop) {
+        times = -1; // Loop indefinitely
+    } else if (times == 0) {
+        return *this; // No-op, return a copy of the current segment
+    } else if (times < 0) {
+        times = 1; // Default to looping once if times is negative
+    }
+
+    // Sync segments (assume _sync method returns a pair of AudioSegments)
+    auto [seg1, seg2] = _sync(*this, seg);
+
+    int sample_width = seg1.sample_width_;
+    std::vector<char> data1 = seg1.raw_data();
+    std::vector<char> data2 = seg2.raw_data();
+
+    std::vector<char> output_data;
+    output_data.insert(output_data.end(), data1.begin(), data1.begin() + position);
+
+    int seg1_len = data1.size();
+    int seg2_len = data2.size();
+    int pos = position;
+
+    while (times != 0) {
+        int remaining = std::max(0, seg1_len - pos);
+        if (seg2_len >= remaining) {
+            data2.resize(remaining);
+            seg2_len = remaining;
+            times = 1; // Last iteration if we reach the end
+        }
+
+        std::vector<char> seg1_overlaid(data1.begin() + pos, data1.begin() + pos + seg2_len);
+
+        if (gain_during_overlay != 0) {
+            // Apply gain (convert dB to float factor)
+            float gain_factor = db_to_float(gain_during_overlay);
+            std::vector<char> seg1_adjusted_gain = mul(seg1_overlaid, sample_width, gain_factor);
+            std::vector<char> overlay_result = add(seg1_adjusted_gain, data2, sample_width);
+            output_data.insert(output_data.end(), overlay_result.begin(), overlay_result.end());
+        } else {
+            std::vector<char> overlay_result = add(seg1_overlaid, data2, sample_width);
+            output_data.insert(output_data.end(), overlay_result.begin(), overlay_result.end());
+        }
+
+        pos += seg2_len;
+        times -= 1;
+    }
+
+    output_data.insert(output_data.end(), data1.begin() + pos, data1.end());
+
+    // Create a new AudioSegment with the output data
+    return spawn(output_data);
+}
+
+
+// Implementation of the append method
+AudioSegment AudioSegment::append(const AudioSegment& seg, int crossfade) const {
+    // Synchronize the audio segments to ensure they have the same sample width and frame rate
+    AudioSegment seg1, seg2;
+    std::tie(seg1, seg2) = AudioSegment::_sync(*this, seg);
+
+    // Check crossfade validity
+    int crossfade_frames = milliseconds_to_frames(crossfade, frame_rate_);
+    if (crossfade == 0) {
+        // No crossfade, just concatenate
+        std::vector<char> combined_data = seg1.raw_data();
+        combined_data.insert(combined_data.end(), seg2.raw_data().begin(), seg2.raw_data().end());
+        return seg1.spawn(combined_data);
+    }
+    else if (crossfade_frames > seg1.frame_count()) {
+        throw std::invalid_argument("Crossfade is longer than the original AudioSegment.");
+    }
+    else if (crossfade_frames > seg2.frame_count()) {
+        throw std::invalid_argument("Crossfade is longer than the appended AudioSegment.");
+    }
+
+    // Create crossfade segments
+    auto fade_out_data = seg1.slice(-crossfade_frames, crossfade_frames).fade(-120.0);
+    auto fade_in_data = seg2.slice(0, crossfade_frames).fade(-120.0);
+
+    // Concatenate segments
+    std::vector<char> combined_data;
+    combined_data.reserve(seg1.raw_data().size() + fade_out_data.raw_data().size() + seg2.raw_data().size());
+
+    // Append the first segment excluding the crossfade portion
+    combined_data.insert(combined_data.end(), seg1.slice(0, -crossfade_frames).raw_data().begin(), seg1.slice(0, -crossfade_frames).raw_data().end());
+    // Append the crossfade portion
+    combined_data.insert(combined_data.end(), fade_out_data.raw_data().begin(), fade_out_data.raw_data().end());
+    // Append the second segment excluding the crossfade portion
+    combined_data.insert(combined_data.end(), seg2.slice(crossfade_frames).raw_data().begin(), seg2.slice(crossfade_frames).raw_data().end());
+
+    return seg1.spawn(combined_data);
+}
 
 
 // Helper method to append another AudioSegment
