@@ -57,6 +57,8 @@ struct WavData {
     std::vector<char> raw_data;
 };
 
+int milliseconds_to_frames(int milliseconds, int frame_rate)
+
 // AudioSegment class
 class AudioSegment {
 public:
@@ -170,6 +172,43 @@ public:
     AudioSegment operator-(const AudioSegment& other) const; // Corrected operator overload
     AudioSegment operator*(int times) const; // Corrected operator overload
     AudioSegment operator*(const AudioSegment& other) const; // Corrected operator overload
+	
+	/**
+     * Overlay the provided segment on to this segment starting at the specified position 
+     * and using the specified looping behavior.
+     *
+     * @param seg The audio segment to overlay on top of this one.
+     * @param position The position to start overlaying the provided segment into this one.
+     * @param loop Loop seg as many times as necessary to match this segment's length.
+     * @param times Loop seg the specified number of times or until it matches this segment's length.
+     * @param gain_during_overlay Changes this segment's volume by the specified amount during the overlay.
+     * @return A new AudioSegment with the overlay applied.
+     */
+    AudioSegment overlay(const AudioSegment& seg, int position = 0, bool loop = false, int times = 1, int gain_during_overlay = 0) const;
+
+
+	/**
+     * Append the provided segment to this segment with an optional crossfade.
+     *
+     * @param seg The audio segment to append to this one.
+     * @param crossfade Duration of the crossfade in milliseconds.
+     * @return A new AudioSegment with the appended content.
+     */
+    AudioSegment append(const AudioSegment& seg, int crossfade = 100) const;
+
+
+	/**
+     * Fade the volume of this audio segment.
+     *
+     * @param to_gain Resulting volume change in dB.
+     * @param from_gain Starting volume change in dB.
+     * @param start When to start fading in milliseconds. Default is the beginning of the segment.
+     * @param end When to end fading in milliseconds. Default is the end of the segment.
+     * @param duration Duration of the fade in milliseconds. Default is until the end of the segment.
+     * @return A new AudioSegment with the faded volume.
+     */
+    AudioSegment fade(double to_gain = 0, double from_gain = 0, 
+                      int start = -1, int end = -1, int duration = -1) const;
 
 	// Declaration of the split_to_mono method
 	std::vector<AudioSegment> split_to_mono() const;
