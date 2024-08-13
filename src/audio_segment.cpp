@@ -2,6 +2,7 @@
 #include "audio_segment.h"
 #include "cppaudioop.h"  // Make sure this header is included for the rms function
 #include "utils.h"       // Include for the ratio_to_db function
+#include "effects.h"
 
 #include <unordered_map>
 #include <cmath>
@@ -26,6 +27,9 @@
 #include <iostream>
 #include <string>
 #include <tuple>
+
+#include <iomanip>
+#include <openssl/evp.h> // For base64 encoding
 
 
 // Add other necessary includes
@@ -192,6 +196,45 @@ AudioSegment AudioSegment::fade(double to_gain, double from_gain,
 
     return this->spawn(output); // Assuming `spawn` method exists and works with raw data
 }
+
+// Implementation of fade_out method
+AudioSegment AudioSegment::fade_out(int duration) const {
+    // Call fade method with to_gain set to -120 dB and end set to infinity
+    return fade(-120.0, 0.0, nullptr, duration);
+}
+
+// Implementation of fade_in method
+AudioSegment AudioSegment::fade_in(int duration) const {
+    // Call fade method with from_gain set to -120 dB and start set to 0
+    return fade(0.0, -120.0, 0, nullptr, duration);
+}
+
+// Implementation of reverse method
+AudioSegment AudioSegment::reverse() const {
+    // Call the reverse function to reverse the audio data
+    std::vector<char> reversed_data = audioop::reverse(data_, sample_width_);
+
+    // Create a new AudioSegment with the reversed data
+    return _spawn(reversed_data);
+}
+
+// Function to base64 encode data
+std::string base64_encode(const std::vector<char>& data) {
+    // Initialize OpenSSL base64 encoder
+    EVP_ENCODE_CTX* ctx = EVP_ENCODE_CTX_new();
+    int output_len = 4 * ((data.size() + 2) / 3);
+    std::string output(output_len, '\0');
+    int final_len = 0;
+
+    EVP_EncodeInit(ctx);
+    EVP_EncodeUpdate(ctx, reinterpret_cast<unsigned char*>(&output[0]), &output_len, reinterpret_cast<const unsigned char*>(data.data()), data.size());
+    EVP_EncodeFinal(ctx, reinterpret_cast<unsigned char*>(&output[0]) + output_len, &final_len);
+    output.resize(output_len + final_len);
+    EVP_ENCODE_CTX_free(ctx);
+
+    return output;
+}
+
 
 // Implementation of remove_dc_offset
 AudioSegment AudioSegment::remove_dc_offset(int channel, int offset) const {
