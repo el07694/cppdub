@@ -1,5 +1,11 @@
 #include "utils.h"
 #include "audio_segment.h"
+#include "cppaudioop.h"  // Make sure this header is included for the rms function
+#include "utils.h"       // Include for the ratio_to_db function
+
+#include <unordered_map>
+#include <cmath>
+
 #include <cstdio>
 #include <filesystem>
 #include <sys/stat.h>
@@ -99,6 +105,112 @@ AudioSegment AudioSegment::from_file(const std::string& file_path, const std::st
     };
 
     return AudioSegment(reinterpret_cast<uint8_t*>(output.data()), output.size(), metadata);
+}
+
+// Method to remove DC offset
+AudioSegment AudioSegment::remove_dc_offset(int channel, int offset) const {
+    if ((channel != 0 && channel != 1 && channel != 2) || (offset != 0 && (offset < -1 || offset > 1))) {
+        throw std::invalid_argument("Invalid channel or offset value.");
+    }
+
+    std::vector<char> data = data_;
+
+    // Convert offset from -1.0 to 1.0 range to the appropriate integer offset
+    if (offset) {
+        offset = static_cast<int>(std::round(offset * max_possible_amplitude()));
+    }
+
+    auto remove_data_dc = [&](const std::vector<char>& data, int off) {
+        if (off == 0) {
+            off = static_cast<int>(avg(data, sample_width_));
+        }
+        return bias(data, sample_width_, -off);
+    };
+
+    if (channels_ == 1) {
+        return spawn(remove_data_dc(data, offset), {});
+    }
+
+    std::vector<char> left_channel = tomono(data, sample_width_, 1, 0);
+    std::vector<char> right_channel = tomono(data, sample_width_, 0, 1);
+
+    if (channel == 0 || channel == 1) {
+        left_channel = remove_data_dc(left_channel, offset);
+    }
+
+    if (channel == 0 || channel == 2) {
+        right_channel = remove_data_dc(right_channel, offset);
+    }
+
+    left_channel = tostereo(left_channel, sample_width_, 1, 0);
+    right_channel = tostereo(right_channel, sample_width_, 0, 1);
+
+    std::vector<char> combined_data = add(left_channel, right_channel, sample_width_);
+    return spawn(combined_data, {});
+}
+
+// Implementation of the rms method
+double AudioSegment::rms() const {
+    // Ensure data_ is in the correct format for the rms function
+    return rms(data_, sample_width_);
+}
+
+// Implementation of the dBFS method
+double AudioSegment::dBFS() const {
+    double rms_value = rms();
+    if (rms_value == 0) {
+        return -std::numeric_limits<double>::infinity();
+    }
+    double max_amplitude = max_possible_amplitude();
+    return ratio_to_db(static_cast<float>(rms_value) / static_cast<float>(max_amplitude));
+}
+
+// Implementation of the max method
+int AudioSegment::max() const {
+    return max(data_, sample_width_);
+}
+
+// Implementation of the max_possible_amplitude method
+double AudioSegment::max_possible_amplitude() const {
+    int bits = sample_width_ * 8;
+    double max_possible_val = std::pow(2, bits);
+    return max_possible_val / 2;
+}
+
+// Implementation of the get_dc_offset method
+double AudioSegment::get_dc_offset(int channel) const {
+    if (channel < 1 || channel > 2) {
+        throw std::out_of_range("channel value must be 1 (left) or 2 (right)");
+    }
+
+    std::vector<char> data;
+
+    if (channels_ == 1) {
+        data = data_;
+    } else if (channel == 1) {
+        data = tomono(data_, sample_width_, 1, 0);
+    } else {
+        data = tomono(data_, sample_width_, 0, 1);
+    }
+
+    double avg_dc_offset = avg(data, sample_width_);
+    return avg_dc_offset / max_possible_amplitude();
+}
+
+// Implementation of the max_dBFS method
+double AudioSegment::max_dBFS() const {
+    double max_value = max();  // Use the existing max() method
+    double max_amplitude = max_possible_amplitude();  // Use the existing max_possible_amplitude() method
+
+    return ratio_to_db(max_value / max_amplitude);
+}
+
+// Implementation of the duration_seconds method
+double AudioSegment::duration_seconds() const {
+    if (frame_rate_ > 0) {
+        return static_cast<double>(frame_count()) / frame_rate_;
+    }
+    return 0.0;
 }
 
 AudioSegment AudioSegment::from_mp3(const std::string& file, const std::map<std::string, std::string>& parameters) {
@@ -432,6 +544,35 @@ std::vector<char> AudioSegment::get_sample_slice(uint32_t start_sample, uint32_t
     }
 
     return result;
+}
+
+// Implementation of the split_to_mono method
+std::vector<AudioSegment> AudioSegment::split_to_mono() const {
+    std::vector<AudioSegment> mono_channels;
+
+    if (channels_ == 1) {
+        mono_channels.push_back(*this);
+        return mono_channels;
+    }
+
+    std::vector<char> samples = raw_data();
+    size_t total_samples = samples.size() / sample_width_;
+    size_t frame_count = total_samples / channels_;
+    
+    for (int i = 0; i < channels_; ++i) {
+        std::vector<char> samples_for_current_channel;
+
+        for (size_t j = i * sample_width_; j < samples.size(); j += channels_ * sample_width_) {
+            samples_for_current_channel.insert(samples_for_current_channel.end(),
+                                               samples.begin() + j,
+                                               samples.begin() + j + sample_width_);
+        }
+
+        std::unordered_map<std::string, int> overrides = {{"channels", 1}, {"frame_width", sample_width_}};
+        mono_channels.push_back(spawn(samples_for_current_channel, overrides));
+    }
+
+    return mono_channels;
 }
 
 // Equality operator
