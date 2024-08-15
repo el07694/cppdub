@@ -29,7 +29,7 @@ void _check_params(int length, int size);
 int _sample_count(const std::vector<char>& cp, int size);
 std::vector<int> _get_samples(const std::vector<char>& cp, int size);
 std::string _struct_format(int size, bool signed_);
-int _get_sample(const std::vector<char>& cp, int size, int index);
+int _get_sample(const std::vector<char>& cp, int size, int index, bool signed_=true);
 void _put_sample(std::vector<char>& result, int size, int index, int sample);
 int _get_maxval(int size, bool signed_);
 int _get_minval(int size, bool signed_);
@@ -47,7 +47,7 @@ int findfit(const std::vector<char>& cp, int size, int value);  // Added declara
 std::pair<int, double> findfit(const std::vector<char>& cp1, const std::vector<char>& cp2);  // Added declaration
 double findfactor(const std::vector<char>& cp1, const std::vector<char>& cp2);  // Added declaration
 int findmax(const std::vector<char>& cp, int len2);  // Added declaration
-std::vector<char> avgpp(const std::vector<char>& cp, int size);  // Added declaration
+double avgpp(const std::vector<char>& cp, int size);  // Added declaration
 std::vector<char> maxpp(const std::vector<char>& cp, int size);  // Added declaration
 int cross(const std::vector<char>& cp, int size);  // Added declaration
 std::vector<char> mul(const std::vector<char>& cp, int size, int factor);  // Added declaration

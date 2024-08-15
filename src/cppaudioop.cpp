@@ -21,7 +21,6 @@ error::~error() noexcept {}
 const char* error::what() const noexcept { return msg_.c_str(); }
 
 // Function implementations
-
 void _check_size(int size) {
     if (size != 1 && size != 2 && size != 4) {
         throw error("Size should be 1, 2, or 4");
@@ -34,7 +33,6 @@ void _check_params(int length, int size) {
         throw error("Invalid length or size");
     }
 }
-
 
 int _sample_count(const std::vector<char>& cp, int size) {
     return cp.size() / size;
@@ -62,23 +60,44 @@ std::string _struct_format(int size, bool signed_) {
     }
 }
 
-int _get_sample(const std::vector<char>& cp, int size, int index) {
-    int value = 0;
-    for (int i = 0; i < size; ++i) {
-        value |= (static_cast<unsigned char>(cp[index * size + i]) << (i * 8));
-    }
-    
-    // Adjust for endianness if necessary (assuming little-endian)
-    if (size == 1) {
-        return static_cast<signed char>(value); // 8-bit signed
-    } else if (size == 2) {
-        return static_cast<short>(value); // 16-bit signed
-    } else if (size == 4) {
-        return static_cast<int>(value); // 32-bit signed
-    }
-    throw error("Unsupported size");
-}
+int _get_sample(const std::vector<char>& cp, int size, int index, bool signed_=true) {
+    // Determine the format and size
+    std::string fmt = _struct_format(size, signed_);
+    int start = index * size;
+    int end = start + size;
 
+    if (start < 0 || end > cp.size()) {
+        throw std::out_of_range("Index out of range");
+    }
+
+    // Extract bytes from the vector
+    std::vector<char> bytes(cp.begin() + start, cp.begin() + end);
+
+    if (size == 1) {
+        unsigned char value = static_cast<unsigned char>(bytes[0]);
+        return signed_ ? static_cast<signed char>(value) : value;
+    } else if (size == 2) {
+        short value;
+        std::memcpy(&value, bytes.data(), sizeof(value));
+        if (signed_) {
+            // Ensure correct signedness and endianness
+            return value;
+        } else {
+            // Convert to unsigned short
+            return static_cast<unsigned short>(value);
+        }
+    } else if (size == 4) {
+        int value;
+        std::memcpy(&value, bytes.data(), sizeof(value));
+        if (signed_) {
+            return value;
+        } else {
+            return static_cast<unsigned int>(value);
+        }
+    } else {
+        throw std::runtime_error("Unsupported size");
+    }
+}
 
 void _put_sample(std::vector<char>& result, int size, int index, int sample) {
     // Ensure we are writing into the correct range
@@ -93,7 +112,6 @@ void _put_sample(std::vector<char>& result, int size, int index, int sample) {
     }
 }
 
-
 int _get_maxval(int size, bool signed_) {
     if (size == 1) {
         return signed_ ? 0x7F : 0xFF;
@@ -104,7 +122,6 @@ int _get_maxval(int size, bool signed_) {
     }
     throw error("Unsupported size");
 }
-
 
 int _get_minval(int size, bool signed_) {
     if (!signed_) {
@@ -119,7 +136,6 @@ int _get_minval(int size, bool signed_) {
     throw error("Unsupported size");
 }
 
-
 std::function<int(int)> _get_clipfn(int size, bool signed_ = true) {
     int maxval = _get_maxval(size, signed_);
     int minval = _get_minval(size, signed_);
@@ -127,7 +143,6 @@ std::function<int(int)> _get_clipfn(int size, bool signed_ = true) {
         return std::max(minval, std::min(sample, maxval));
     };
 }
-
 
 int _overflow(int sample, int size, bool signed_ = true) {
     int maxval = _get_maxval(size, signed_);
@@ -149,7 +164,6 @@ int _overflow(int sample, int size, bool signed_ = true) {
     }
 }
 
-
 int getsample(const std::vector<char>& cp, int size, int index) {
     int sample_count = _sample_count(cp, size);
     if (index < 0 || index >= sample_count) {
@@ -158,7 +172,6 @@ int getsample(const std::vector<char>& cp, int size, int index) {
     return _get_sample(cp, size, index);
 }
 
-
 int max(const std::vector<char>& cp, int size) {
     _check_params(cp.size(), size);
 
@@ -166,14 +179,13 @@ int max(const std::vector<char>& cp, int size) {
         return 0;
     }
 
-    int max_val = _get_minval(size);
+    int max_val = _get_minval(size,true);
     auto samples = _get_samples(cp, size);
     for (const auto& sample : samples) {
         max_val = std::max(max_val, std::abs(sample)); // Compare absolute values
     }
     return max_val;
 }
-
 
 int minmax(const std::vector<char>& cp, int size, int& minval, int& maxval) {
     _check_params(cp.size(), size);
@@ -189,7 +201,6 @@ int minmax(const std::vector<char>& cp, int size, int& minval, int& maxval) {
     }
     return 0;
 }
-
 
 double avg(const std::vector<char>& cp, int size) {
     _check_params(cp.size(), size);
@@ -207,7 +218,6 @@ double avg(const std::vector<char>& cp, int size) {
     
     return static_cast<double>(sum) / count;
 }
-
 
 double rms(const std::vector<char>& cp, int size) {
     int count = _sample_count(cp, size);
@@ -242,7 +252,6 @@ int _sum2(const std::vector<char>& cp1, const std::vector<char>& cp2, int size) 
 
     return sum;
 }
-
 
 // Function to calculate the fit of a sample
 int findfit(const std::vector<char>& cp, int size, int value) {
@@ -364,120 +373,95 @@ int findmax(const std::vector<char>& cp, int len2) {
     return best_i;
 }
 
-std::vector<char> avgpp(const std::vector<char>& cp, int size) {
-    if (cp.size() % size != 0) {
-        throw error("Input size is not valid for the given data.");
-    }
-
+double avgpp(const std::vector<char>& cp, int size) {
+    _check_params(cp, size);
     int sample_count = _sample_count(cp, size);
-    int avg_val = avg(cp, size);
 
-    std::vector<char> result(cp.size());
-    
-    bool prev_extreme_valid = false;
-    int prev_extreme = 0;
-    int avg = 0;
-    int num_extremes = 0;
+    bool prevextremevalid = false;
+    double prevextreme = 0.0;  // Use double for consistency
+    double avg = 0.0;
+    int nextreme = 0;
 
-    int prev_val = _get_sample(cp, size, 0);
-    int val = _get_sample(cp, size, 1);
+    int prevval = getsample(cp, size, 0);
+    int val = getsample(cp, size, 1);
 
-    int prev_diff = val - prev_val;
+    int prevdiff = val - prevval;
 
     for (int i = 1; i < sample_count; ++i) {
-        val = _get_sample(cp, size, i);
-        int diff = val - prev_val;
+        val = getsample(cp, size, i);
+        int diff = val - prevval;
 
-        if (diff * prev_diff < 0) {
-            if (prev_extreme_valid) {
-                avg += std::abs(prev_val - prev_extreme);
-                num_extremes++;
+        if (diff * prevdiff < 0) {
+            if (prevextremevalid) {
+                avg += std::abs(prevval - prevextreme);  // Use std::abs for abs function
+                nextreme += 1;
             }
 
-            prev_extreme_valid = true;
-            prev_extreme = prev_val;
+            prevextremevalid = true;
+            prevextreme = prevval;
         }
 
-        prev_val = val;
+        prevval = val;
         if (diff != 0) {
-            prev_diff = diff;
+            prevdiff = diff;
         }
     }
 
-    int result_value = (num_extremes > 0) ? avg / num_extremes : 0;
-
-    for (int i = 0; i < sample_count; ++i) {
-        _put_sample(result, size, i, result_value);
+    if (nextreme == 0) {
+        return 0.0;
     }
 
-    return result;
+    return avg / nextreme;
 }
 
-std::vector<char> maxpp(const std::vector<char>& cp, int size) {
-    if (cp.size() % size != 0) {
-        throw error("Input size is not valid for the given data.");
-    }
-
+int maxpp(const std::vector<char>& cp, int size) {
+    _check_params(cp.size(), size);
     int sample_count = _sample_count(cp, size);
 
-    bool prev_extreme_valid = false;
-    int prev_extreme = 0;
-    int max_diff = 0;
+    bool prevextremevalid = false;
+    int prevextreme = 0;  // Changed to int
+    int max = 0;
 
-    int prev_val = _get_sample(cp, size, 0);
-    int val = _get_sample(cp, size, 1);
+    int prevval = getsample(cp, size, 0);
+    int val = getsample(cp, size, 1);
 
-    int prev_diff = val - prev_val;
+    int prevdiff = val - prevval;
 
     for (int i = 1; i < sample_count; ++i) {
-        val = _get_sample(cp, size, i);
-        int diff = val - prev_val;
+        val = getsample(cp, size, i);
+        int diff = val - prevval;
 
-        if (diff * prev_diff < 0) {
-            if (prev_extreme_valid) {
-                int extreme_diff = std::abs(prev_val - prev_extreme);
-                if (extreme_diff > max_diff) {
-                    max_diff = extreme_diff;
+        if (diff * prevdiff < 0) {
+            if (prevextremevalid) {
+                int extremediff = std::abs(prevval - prevextreme);
+                if (extremediff > max) {
+                    max = extremediff;
                 }
             }
-
-            prev_extreme_valid = true;
-            prev_extreme = prev_val;
+            prevextremevalid = true;
+            prevextreme = prevval;
         }
 
-        prev_val = val;
+        prevval = val;
         if (diff != 0) {
-            prev_diff = diff;
+            prevdiff = diff;
         }
     }
-
-    // Prepare the result vector with the computed max_diff value
-    std::vector<char> result(cp.size());
-    for (int i = 0; i < sample_count; ++i) {
-        _put_sample(result, size, i, max_diff);
-    }
-
-    return result;
+    return max;  // Return int, not std::vector<char>
 }
 
-
 int cross(const std::vector<char>& cp, int size) {
-    if (cp.size() % size != 0) {
-        throw error("Input size is not valid for the given data.");
-    }
+    _check_params(cp.size(), size);
 
     int crossings = 0;
     int last_sample = 0;
-    int sample_count = _sample_count(cp, size);
-    
-    // Check for crossings
-    for (int i = 0; i < sample_count; ++i) {
-        int sample = _get_sample(cp, size, i);
+    auto samples = _get_samples(cp, size);
 
-        if ((last_sample <= 0 && sample > 0) || (last_sample >= 0 && sample < 0)) {
-            crossings++;
+    for (const auto& sample : samples) {
+        // Properly decompose the conditional
+        if ((sample <= 0 && last_sample > 0) || (sample >= 0 && last_sample < 0)) {
+            crossings += 1;
         }
-
         last_sample = sample;
     }
 
@@ -485,22 +469,16 @@ int cross(const std::vector<char>& cp, int size) {
 }
 
 std::vector<char> mul(const std::vector<char>& cp, int size, int factor) {
-    // Validate parameters
-    if (cp.size() % size != 0) {
-        throw error("Input size is not valid for the given data.");
-    }
+    _check_params(cp.size(), size);
+    auto clip = _get_clipfn(size);
 
     std::vector<char> result(cp.size());
     int sample_count = _sample_count(cp, size);
-    
-    // Get clipping function
-    auto clip = _get_clipfn(size);
 
-    // Process each sample
     for (int i = 0; i < sample_count; ++i) {
         int sample = _get_sample(cp, size, i);
-        sample = _overflow(sample * factor, size); // Overflow handling
-        sample = clip(sample); // Clipping
+        sample = _overflow(sample * factor, size); // Handle overflow if necessary
+        sample = clip(sample); // Apply clipping
         _put_sample(result, size, i, sample);
     }
 
@@ -516,7 +494,7 @@ std::vector<char> tomono(const std::vector<char>& cp, int size, int fac1, int fa
     auto clip = _get_clipfn(size);
 
     int sample_count = _sample_count(cp, size);
-    std::vector<char> result(sample_count * size / 2);  // Allocate space for mono result
+    std::vector<char> result(sample_count / 2);  // Allocate space for mono result
 
     for (int i = 0; i < sample_count / 2; ++i) {
         // Get left and right channel samples
@@ -582,7 +560,8 @@ std::vector<char> add(const std::vector<char>& cp1, const std::vector<char>& cp2
         int sample2 = _get_sample(cp2, size, i);
 
         // Compute the sum and apply overflow handling
-        int sum = _overflow(sample1 + sample2, size);
+        int sum = sample1 + sample2;
+        sum = _overflow(sum, size);  // Ensure the result is within the valid range
 
         // Clip the result and store it in the result vector
         sum = clip(sum);
@@ -640,7 +619,9 @@ int compute_scale_factor(int from_size, int to_size) {
 
 // Function to convert audio samples from one bit depth to another
 std::vector<char> lin2lin(const std::vector<char>& cp, int size, int size2) {
-    if (size == size2) {
+     _check_params(cp.size(), size);
+    _check_size(size2);
+	if (size == size2) {
         return cp;  // No conversion needed
     }
 
