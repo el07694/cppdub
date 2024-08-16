@@ -17,9 +17,14 @@
 #include <cerrno>
 #include <functional>
 #include <nlohmann/json.hpp> // Include the nlohmann/json library
+#include <set>
 
 #ifdef _WIN32
 #include <windows.h>
+#include <io.h>
+#define access _access
+#define F_OK 0
+#define X_OK 1
 #else
 #include <unistd.h>
 #endif
@@ -46,7 +51,6 @@ const std::map<int, std::pair<int, int>> ARRAY_RANGES = {
     {16, {-32768, 32767}},                 // 16-bit
     {32, {-2147483648, 2147483647}}       // 32-bit
 };
-
 
 // Functions
 int get_frame_width(int bit_depth) {
@@ -77,28 +81,88 @@ std::pair<int, int> get_min_max_value(int bit_depth) {
     throw std::invalid_argument("Unsupported bit depth");
 }
 
-std::pair<std::string, bool> _fd_or_path_or_tempfile(int fd, const std::string& path, bool tempfile) {
-    if (tempfile) {
-        // Generate a unique temporary file name
-        std::string temp_file_name = "tempfile_XXXXXX.tmp";
-        std::unique_ptr<std::FILE, decltype(&std::pclose)> temp_file(std::tmpfile(), std::pclose);
+// Custom function to handle file-like operations similar to Python
+std::pair<std::unique_ptr<std::FILE, decltype(&std::fclose)>, bool> _fd_or_path_or_tempfile(int* fd, const std::string& path = "", bool tempfile = true, const std::string& mode = "w+b") {
+    
+    bool close_fd = false;
+
+    // Handle the case where fd is nullptr and tempfile is true (create a temporary file)
+    if (fd == nullptr && tempfile) {
+        std::unique_ptr<std::FILE, decltype(&std::fclose)> temp_file(std::tmpfile(), std::fclose);
         if (!temp_file) {
             throw std::runtime_error("Unable to create temporary file");
         }
-        return {temp_file_name, true};
+        close_fd = true;
+        return {std::move(temp_file), close_fd};
     }
 
-    if (fd >= 0) {
-        return {"File Descriptor: " + std::to_string(fd), false};
+    // If fd is a valid file descriptor, use it
+    if (fd != nullptr && *fd >= 0) {
+#ifdef _WIN32
+        // Convert Windows file descriptor to FILE* using _fdopen
+        std::unique_ptr<std::FILE, decltype(&std::fclose)> file(_fdopen(*fd, mode.c_str()), std::fclose);
+#else
+        // Convert POSIX file descriptor to FILE* using fdopen
+        std::unique_ptr<std::FILE, decltype(&std::fclose)> file(fdopen(*fd, mode.c_str()), std::fclose);
+#endif
+        if (!file) {
+            throw std::runtime_error("Unable to open file from file descriptor");
+        }
+        return {std::move(file), close_fd};
     }
 
-    // Handle the case for file path
+    // If a path is provided, open the file at the given path
     if (!path.empty()) {
-        return {path, false};
+        std::unique_ptr<std::FILE, decltype(&std::fclose)> file(std::fopen(path.c_str(), mode.c_str()), std::fclose);
+        if (!file) {
+            throw std::runtime_error("Unable to open file from path: " + path);
+        }
+        close_fd = true;
+        return {std::move(file), close_fd};
     }
 
-    throw std::invalid_argument("Invalid arguments provided");
+    // If neither valid fd nor path is provided, throw an error
+    throw std::invalid_argument("Invalid arguments provided: fd is null, path is empty, and tempfile is false");
 }
+
+/* test previous function:
+int main() {
+    try {
+        // Test cases
+
+        // Case 1: Create a temporary file
+        auto result = _fd_or_path_or_tempfile(nullptr, "", true);
+        std::cout << "Temporary file created, should close: " << result.second << std::endl;
+
+        // Case 2: Use a valid file descriptor
+        int fd;
+#ifdef _WIN32
+        fd = _open("example.txt", _O_RDWR | _O_CREAT, _S_IREAD | _S_IWRITE);
+#else
+        fd = open("example.txt", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+#endif
+        if (fd < 0) {
+            throw std::runtime_error("Failed to open file descriptor for 'example.txt'");
+        }
+        auto result_fd = _fd_or_path_or_tempfile(&fd);
+        std::cout << "File descriptor used, should close: " << result_fd.second << std::endl;
+#ifdef _WIN32
+        _close(fd);
+#else
+        close(fd);
+#endif
+
+        // Case 3: Open a file by path
+        auto result_path = _fd_or_path_or_tempfile(nullptr, "example.txt", false);
+        std::cout << "File opened from path, should close: " << result_path.second << std::endl;
+
+    } catch (const std::exception& e) {
+        std::cerr << "Exception: " << e.what() << std::endl;
+    }
+
+    return 0;
+}
+*/
 
 float db_to_float(float db, bool using_amplitude = true) {
     if (using_amplitude) {
@@ -107,7 +171,6 @@ float db_to_float(float db, bool using_amplitude = true) {
         return std::pow(10.0, db / 10.0);
     }
 }
-
 
 float ratio_to_db(float ratio, float val2 = 0.0f, bool using_amplitude = true) {
     // Handle ratio of zero
@@ -127,15 +190,9 @@ float ratio_to_db(float ratio, float val2 = 0.0f, bool using_amplitude = true) {
     }
 }
 
-
-void register_pydub_effect(const std::string& effect_name, std::function<void(AudioSegment&)> effect_function) {
-    AudioSegment::register_effect(effect_name, effect_function);
-    std::cout << "Registered effect: " << effect_name << std::endl;
-}
-
 std::vector<AudioSegment> make_chunks(const AudioSegment& audio_segment, size_t chunk_length_ms) {
     std::vector<AudioSegment> chunks;
-    size_t total_length = audio_segment.length();
+    size_t total_length = audio_segment.length_in_milliseconds();
 
     if (chunk_length_ms == 0) {
         throw std::invalid_argument("Chunk length must be greater than zero.");
@@ -152,42 +209,64 @@ std::vector<AudioSegment> make_chunks(const AudioSegment& audio_segment, size_t 
     return chunks;
 }
 
-std::string which(const std::string& cmd) {
-    std::string command;
+std::string which(const std::string& program) {
+    // Add .exe extension for Windows if not already present
+    std::string cmd = program;
+#ifdef _WIN32
+    if (cmd.find(".exe") == std::string::npos) {
+        cmd += ".exe";
+    }
+#endif
+
+    // Get the PATH environment variable
+    const char* path_env = std::getenv("PATH");
+    if (path_env == nullptr) {
+        return "not found";
+    }
+
+    // Split the PATH into directories
+    std::vector<std::string> directories;
+    std::string path_env_str(path_env);
+    std::string delimiter;
     
-    #ifdef _WIN32
-        command = "where " + cmd;
-    #else
-        command = "which " + cmd;
-    #endif
+#ifdef _WIN32
+    delimiter = ";"; // Windows uses semicolon as the PATH separator
+#else
+    delimiter = ":"; // Unix-like systems use colon as the PATH separator
+#endif
 
-    std::array<char, 128> buffer;
-    std::string result;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(_popen(command.c_str(), "r"), pclose);
+    size_t pos = 0;
+    while ((pos = path_env_str.find(delimiter)) != std::string::npos) {
+        directories.push_back(path_env_str.substr(0, pos));
+        path_env_str.erase(0, pos + delimiter.length());
+    }
+    directories.push_back(path_env_str); // Add the last directory
 
-    if (!pipe) {
-        throw std::runtime_error("popen() failed!");
+    // Check each directory for the program
+    for (const auto& dir : directories) {
+        std::string full_path = dir + "/" + cmd;
+
+#ifdef _WIN32
+        // Windows uses backslashes in paths
+        std::replace(full_path.begin(), full_path.end(), '/', '\\');
+#endif
+
+        // Check if the file exists and is executable
+        if (access(full_path.c_str(), F_OK) == 0 && access(full_path.c_str(), X_OK) == 0) {
+            return full_path;
+        }
     }
 
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-        result += buffer.data();
-    }
-
-    // Trim any trailing newlines or carriage returns
-    if (!result.empty()) {
-        result.erase(result.find_last_not_of("\r\n") + 1);
-    }
-
-    return result.empty() ? "not found" : result;
+    return "not found";
 }
 
 std::string get_encoder_name() {
     // Check for the presence of avconv
-    if (!which("avconv").empty()) {
+    if (which("avconv") != "not found") {
         return "avconv";
     }
     // Check for the presence of ffmpeg
-    else if (!which("ffmpeg").empty()) {
+    else if (which("ffmpeg") != "not found") {
         return "ffmpeg";
     }
     else {
@@ -198,22 +277,32 @@ std::string get_encoder_name() {
 }
 
 std::string get_player_name() {
-    if (!which("avplay").empty()) {
+    // Check for the presence of avplay
+    if (which("avplay") != "not found") {
         return "avplay";
-    } else if (!which("ffplay").empty()) {
+    }
+    // Check for the presence of ffplay
+    else if (which("ffplay") != "not found") {
         return "ffplay";
-    } else {
+    }
+    else {
+        // Warn and default to ffplay
         std::cerr << "Couldn't find ffplay or avplay - defaulting to ffplay, but may not work" << std::endl;
         return "ffplay";
     }
 }
 
 std::string get_prober_name() {
-    if (!which("avprobe").empty()) {
+    // Check for the presence of avprobe
+    if (which("avprobe") != "not found") {
         return "avprobe";
-    } else if (!which("ffprobe").empty()) {
+    }
+    // Check for the presence of ffprobe
+    else if (which("ffprobe") != "not found") {
         return "ffprobe";
-    } else {
+    }
+    else {
+        // Warn and default to ffprobe
         std::cerr << "Couldn't find ffprobe or avprobe - defaulting to ffprobe, but may not work" << std::endl;
         return "ffprobe";
     }
@@ -236,8 +325,8 @@ std::string fsdecode(const std::string& path) {
 nlohmann::json get_extra_info(const std::string& stderr) {
     nlohmann::json extra_info;
 
-    // Define the regex pattern to match the stream information
-    std::regex re_stream(R"( *(Stream #0:(?:[0-9]+)):(.*?)(?:\n(?: *)*(Stream #0:([0-9]+)):(.*?))?)", std::regex::extended);
+    // Adjusted regex pattern to match Python regex more closely
+    std::regex re_stream(R"( *(Stream #0[:\.](\d+)):(.*?)(?:\n(?: *)*(Stream #0[:\.](\d+)):(.*?))?)", std::regex::extended);
 
     // Create an iterator for all matches
     auto begin = std::sregex_iterator(stderr.begin(), stderr.end(), re_stream);
@@ -246,9 +335,10 @@ nlohmann::json get_extra_info(const std::string& stderr) {
     for (std::sregex_iterator i = begin; i != end; ++i) {
         std::smatch match = *i;
 
-        std::string stream_id = match[1].str();
-        std::string content_0 = match[2].str();
-        std::string content_1 = match[4].str();
+        // Extract stream ID and content
+        std::string stream_id = match[2].str(); // Correctly extract numeric stream ID
+        std::string content_0 = match[3].str();
+        std::string content_1 = match[5].str();
 
         // Combine the content lines if needed
         std::string content_line = content_0;
@@ -270,7 +360,7 @@ nlohmann::json get_extra_info(const std::string& stderr) {
         }
 
         // Convert stream_id to integer and add to JSON object
-        int id = std::stoi(stream_id.substr(stream_id.find_last_of(':') + 1));
+        int id = std::stoi(stream_id);
         extra_info[std::to_string(id)] = tokens;
     }
 
@@ -281,12 +371,19 @@ nlohmann::json get_extra_info(const std::string& stderr) {
 std::string exec_command(const std::vector<std::string>& command_args, const std::string& stdin_data = "") {
     std::string command;
     for (const auto& arg : command_args) {
-        command += arg + " ";
+        // Properly quote each argument to handle spaces and special characters
+        command += "\"" + arg + "\" ";
     }
 
     std::array<char, 128> buffer;
     std::string result;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(_popen(command.c_str(), "r"), pclose);
+    
+    #ifdef _WIN32
+        std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(command.c_str(), "r"), _pclose);
+    #else
+        std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
+    #endif
+    
     if (!pipe) throw std::runtime_error("popen() failed!");
 
     while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
@@ -296,19 +393,28 @@ std::string exec_command(const std::vector<std::string>& command_args, const std
     return result;
 }
 
+// Overload for single string command
 std::string exec_command(const std::string& command) {
     std::array<char, 128> buffer;
     std::string result;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
+    
+    #ifdef _WIN32
+        std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(command.c_str(), "r"), _pclose);
+    #else
+        std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
+    #endif
+
     if (!pipe) throw std::runtime_error("popen() failed!");
+
     while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
         result += buffer.data();
     }
+
     return result;
 }
 
 nlohmann::json mediainfo_json(const std::string& file_path, int read_ahead_limit = -1) {
-    std::string prober = which("avprobe").empty() ? "ffprobe" : "avprobe";
+    std::string prober = get_prober_name();
     
     std::vector<std::string> command_args = {"-v", "info", "-show_format", "-show_streams"};
     std::string stdin_data;
@@ -400,14 +506,14 @@ nlohmann::json mediainfo(const std::string& file_path) {
 
     std::string output = exec_command(command);
 
-    // In case the initial command fails, retry without quiet
+    // Retry command without 'quiet' if output is empty
     if (output.empty()) {
         command = prober + " -show_format -show_streams " + file_path;
         output = exec_command(command);
     }
 
     // Regex to match key-value pairs
-    std::regex rgx(R"((?:(?P<inner_dict>.*?):)?(?P<key>.*?)\=(?P<value>.*?))");
+    std::regex rgx(R"((?:(.*?):)?([^=]+)=(.*))");
     std::smatch match;
 
     nlohmann::json info;
@@ -416,6 +522,9 @@ nlohmann::json mediainfo(const std::string& file_path) {
     std::string line;
 
     while (std::getline(stream, line)) {
+        // Remove carriage return for Windows compatibility
+        line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
+
         if (std::regex_search(line, match, rgx)) {
             std::string inner_dict = match[1];
             std::string key = match[2];
@@ -438,11 +547,11 @@ std::pair<std::set<std::string>, std::set<std::string>> get_supported_codecs() {
     static bool is_cached = false;
 
     if (!is_cached) {
-        std::string encoder = "ffmpeg"; // You can set this dynamically based on your environment
+        std::string encoder = "ffmpeg"; // Set dynamically based on your environment if needed
         std::string command = encoder + " -codecs";
         std::string output = exec_command(command);
 
-        std::regex rgx("^([D.][E.][AVS.][I.][L.][S.]) (\\w*) +(.*)");
+        std::regex rgx(R"(^([D.][E.][AVS.][I.][L.][S.]) (\w*) +(.*))");
         std::smatch match;
         std::set<std::string> decoders;
         std::set<std::string> encoders;
@@ -450,7 +559,8 @@ std::pair<std::set<std::string>, std::set<std::string>> get_supported_codecs() {
         std::istringstream stream(output);
         std::string line;
         while (std::getline(stream, line)) {
-            line = std::regex_replace(line, std::regex("\\r"), ""); // Handle Windows CR
+            // Remove carriage return characters (Windows compatibility)
+            line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
 
             if (std::regex_match(line, match, rgx)) {
                 std::string flags = match[1];

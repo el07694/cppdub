@@ -64,6 +64,8 @@ const std::unordered_map<std::string, std::string> AudioSegment::DEFAULT_CODECS 
     {"ogg", "libvorbis"}
 };
 
+//NOTE: MAKE SURE THAT chunk = segment(1000,200) is available
+
 // Constructor and Destructor
 AudioSegment::AudioSegment()
     : sample_width_(2), frame_rate_(44100), channels_(2), frame_width_(0) {
