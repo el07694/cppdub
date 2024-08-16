@@ -38,6 +38,11 @@ public:
         : std::runtime_error(message) {}
 };
 
+std::unordered_map<std::string, std::string> AUDIO_FILE_EXT_ALIASES = {
+        {"m4a", "mp4"},
+        {"wave", "wav"}
+};
+
 // Struct to hold WAV file sub-chunk information
 struct WavSubChunk {
     std::string id;
@@ -65,8 +70,15 @@ public:
     // Constructors and Destructor
     AudioSegment();
     explicit AudioSegment(const std::string& file_path);
+	AudioSegment(const char* data, size_t size)
     AudioSegment(const char* data, size_t size, const std::map<std::string, int>& metadata);
     ~AudioSegment();
+	
+	// Struct to represent a range
+    struct Range {
+        uint32_t start_time_ms;
+        uint32_t end_time_ms;
+    };
     
     // Static method to create an AudioSegment from file
     static AudioSegment from_file(const std::string& file_path, 
@@ -75,6 +87,8 @@ public:
                                   int start_second = -1, 
                                   int duration = -1, 
                                   const std::vector<std::string>& parameters = {});
+							
+	static AudioSegment from_file(const std::string& file_path, const std::string& format,const std::map<std::string, int>& parameters);
 
     static AudioSegment from_mp3(const std::string& file, const std::map<std::string, std::string>& parameters = {});
     static AudioSegment from_flv(const std::string& file, const std::map<std::string, std::string>& parameters = {});
@@ -229,7 +243,7 @@ public:
 	double rms() const;
 
 	// Declaration of the dBFS method
-	double dBFS() const;
+	float dBFS() const;
 
 	// Declaration of the max method
 	int max() const;
@@ -285,9 +299,6 @@ private:
     // Helper method for applying gain
     AudioSegment apply_gain(int db) const;
 
-    // Helper method for appending audio segments
-    AudioSegment append(const AudioSegment& other, int crossfade = 0) const;
-
     // Member variables
     std::vector<char> data_;
     std::string file_path_;
@@ -319,6 +330,8 @@ std::string exec_command(const std::vector<std::string>& command_args, const std
 
 // Function to handle temporary file creation and cleanup
 std::filesystem::path create_temp_file(const std::string& data);
+
+uint32_t time_to_sample_index(int time_in_ms);
 
 // Function to convert an audio file to an AudioSegment using temporary files
 AudioSegment from_file_using_temporary_files(const std::string& file_path, const std::string& format = "", const std::string& codec = "", 

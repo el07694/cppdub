@@ -6,7 +6,6 @@
 
 #include <unordered_map>
 #include <cmath>
-
 #include <cstdio>
 #include <filesystem>
 #include <sys/stat.h>
@@ -60,11 +59,30 @@ int milliseconds_to_frames(int milliseconds, int frame_rate) {
 
 // Static member initialization
 std::string AudioSegment::ffmpeg_converter_ = "ffmpeg";
+
 const std::unordered_map<std::string, std::string> AudioSegment::DEFAULT_CODECS = {
     {"ogg", "libvorbis"}
 };
 
 //NOTE: MAKE SURE THAT chunk = segment(1000,200) is available
+
+// Convert time (in milliseconds) to sample index
+uint32_t time_to_sample_index(int time_in_ms) const {
+	return (time_in_ms * frame_rate_) / 1000;
+}
+
+// Overload the subscript operator to accept Range
+AudioSegment operator[](Range range) const {
+	// Convert times to sample indices
+	uint32_t start_sample = time_to_sample_index(range.start_time_ms);
+	uint32_t end_sample = time_to_sample_index(range.end_time_ms);
+
+	// Get the slice using the get_sample_slice method
+	std::vector<char> sliced_data = get_sample_slice(start_sample, end_sample);
+
+	// Return a new AudioSegment with the sliced data
+	return _spawn(sliced_data);
+}
 
 // Constructor and Destructor
 AudioSegment::AudioSegment()
@@ -83,6 +101,16 @@ AudioSegment::AudioSegment(const char* data, size_t size, const std::map<std::st
     : sample_width_(metadata.at("sample_width")), frame_rate_(metadata.at("frame_rate")),
       frame_width_(metadata.at("frame_width")), channels_(metadata.at("channels")), data_size_(size) {
     data_.assign(data, data + size);
+}
+
+// Private constructor implementation
+AudioSegment::AudioSegment(std::vector<char> data, uint16_t sample_width, uint32_t frame_rate, 
+                           uint16_t channels, uint32_t frame_width)
+    : data_(std::move(data)), sample_width_(sample_width), frame_rate_(frame_rate), 
+      channels_(channels), frame_width_(frame_width) {}
+	  
+AudioSegment::AudioSegment(const std::vector<uint8_t>& data) {
+    data_.assign(data.begin(), data.end());  // Convert from uint8_t to char
 }
 
 AudioSegment::~AudioSegment() {
@@ -121,9 +149,15 @@ AudioSegment AudioSegment::from_file(const std::string& file_path, const std::st
         {"frame_width", 4}
     };
 
-    return AudioSegment(reinterpret_cast<uint8_t*>(output.data()), output.size(), metadata);
+    return AudioSegment(static_cast<const char*>(output.data()), output.size(), metadata);
 }
 
+AudioSegment AudioSegment::from_file(const std::string& file_path, const std::string& format,const std::map<std::string, int>& parameters) {
+    AudioSegment audio_segment = AudioSegment::from_file(file_path, format,"",parameters,0,0);	
+	return audio_segment    
+}
+
+// Implementation of the fade method
 // Implementation of the fade method
 AudioSegment AudioSegment::fade(double to_gain, double from_gain, 
                                 int start, int end, int duration) const {
@@ -138,7 +172,7 @@ AudioSegment AudioSegment::fade(double to_gain, double from_gain,
     }
 
     // Adjust start and end
-    int length = this->duration(); // Assuming you have a method to get duration in milliseconds
+    int length = this->length_in_milliseconds(); // Assuming you have a method to get duration in milliseconds
     start = (start != -1) ? std::min(length, start) : 0;
     end = (end != -1) ? std::min(length, end) : length;
 
@@ -159,10 +193,14 @@ AudioSegment AudioSegment::fade(double to_gain, double from_gain,
 
     std::vector<char> output;
 
+    // Convert start and end times to sample indices
+    uint32_t start_sample = time_to_sample_index(start);
+    uint32_t end_sample = time_to_sample_index(end);
+
     // Original data before fade
-    std::vector<char> before_fade = this->slice(0, start).raw_data(); // Assuming `slice` method exists
+    std::vector<char> before_fade = this->get_sample_slice(0, start_sample);
     if (from_gain != 0) {
-        before_fade = audioop::mul(before_fade, this->sample_width(), from_power); // Assuming `audioop::mul` exists
+        before_fade = audioop::mul(before_fade, static_cast<int>(this->sample_width()), static_cast<int>(from_power)); // Assuming `audioop::mul` exists
     }
     output.insert(output.end(), before_fade.begin(), before_fade.end());
 
@@ -171,32 +209,32 @@ AudioSegment AudioSegment::fade(double to_gain, double from_gain,
         double scale_step = gain_delta / duration;
         for (int i = 0; i < duration; ++i) {
             double volume_change = from_power + (scale_step * i);
-            std::vector<char> chunk = this->slice(start + i, start + i + 1).raw_data(); // Slice 1 sample
-            chunk = audioop::mul(chunk, this->sample_width(), volume_change);
+            std::vector<char> chunk = this->get_sample_slice(start_sample + i, start_sample + i + 1);
+            chunk = audioop::mul(chunk, static_cast<int>(this->sample_width()), static_cast<int>(volume_change));
             output.insert(output.end(), chunk.begin(), chunk.end());
         }
     } else {
-        int start_frame = this->frame_count(start);
-        int end_frame = this->frame_count(end);
+        int start_frame = static_cast<int>(this->frame_count(start)); // Assumed method exists
+        int end_frame = static_cast<int>(this->frame_count(end)); // Assumed method exists
         int fade_frames = end_frame - start_frame;
         double scale_step = gain_delta / fade_frames;
 
         for (int i = 0; i < fade_frames; ++i) {
             double volume_change = from_power + (scale_step * i);
-            std::vector<char> sample = this->get_frame(start_frame + i); // Assuming `get_frame` method exists
-            sample = audioop::mul(sample, this->sample_width(), volume_change);
+            std::vector<char> sample = static_cast<std::vector<char>>(this->get_frame(start_frame + i)); // Assuming `get_frame` method exists
+            sample = audioop::mul(sample, static_cast<int>(this->sample_width()), static_cast<int>(volume_change));
             output.insert(output.end(), sample.begin(), sample.end());
         }
     }
 
     // Original data after fade
-    std::vector<char> after_fade = this->slice(end).raw_data();
+    std::vector<char> after_fade = this->get_sample_slice(end_sample, static_cast<uint32_t>(data_.size() / frame_width_));
     if (to_gain != 0) {
-        after_fade = audioop::mul(after_fade, this->sample_width(), db_to_float(to_gain));
+        after_fade = audioop::mul(after_fade, static_cast<int>(this->sample_width()), static_cast<int>(db_to_float(to_gain)));
     }
     output.insert(output.end(), after_fade.begin(), after_fade.end());
 
-    return this->spawn(output); // Assuming `spawn` method exists and works with raw data
+    return this->_spawn(output); // Assuming `spawn` method exists and works with raw data
 }
 
 // Implementation of fade_out method
@@ -214,12 +252,13 @@ AudioSegment AudioSegment::fade_in(int duration) const {
 // Implementation of reverse method
 AudioSegment AudioSegment::reverse() const {
     // Call the reverse function to reverse the audio data
-    std::vector<char> reversed_data = audioop::reverse(data_, sample_width_);
+    std::vector<char> reversed_data = audioop::reverse(data_,static_cast<int>(sample_width_));
 
     // Create a new AudioSegment with the reversed data
     return _spawn(reversed_data);
 }
 
+/*
 // Function to base64 encode data
 std::string base64_encode(const std::vector<char>& data) {
     // Initialize OpenSSL base64 encoder
@@ -236,7 +275,7 @@ std::string base64_encode(const std::vector<char>& data) {
 
     return output;
 }
-
+*/
 
 // Implementation of remove_dc_offset
 AudioSegment AudioSegment::remove_dc_offset(int channel, int offset) const {
@@ -253,17 +292,17 @@ AudioSegment AudioSegment::remove_dc_offset(int channel, int offset) const {
 
     auto remove_data_dc = [this, offset](const std::vector<char>& data) {
         if (!offset) {
-            offset = static_cast<int>(round(avg(data, sample_width_)));
+            offset = static_cast<int>(round(avg(data, static_cast<int>(sample_width_))));
         }
-        return bias(data, sample_width_, -offset);
+        return bias(data, static_cast<int>(sample_width_), -offset);
     };
 
     if (channels_ == 1) {
-        return spawn(remove_data_dc(data_));
+        return _spawn(remove_data_dc(data_));
     }
 
-    auto left_channel = tomono(data_, sample_width_, 1, 0);
-    auto right_channel = tomono(data_, sample_width_, 0, 1);
+    auto left_channel = tomono(data_, static_cast<int>(sample_width_), 1, 0);
+    auto right_channel = tomono(data_, static_cast<int>(sample_width_), 0, 1);
 
     if (!channel || channel == 1) {
         left_channel = remove_data_dc(left_channel);
@@ -273,20 +312,20 @@ AudioSegment AudioSegment::remove_dc_offset(int channel, int offset) const {
         right_channel = remove_data_dc(right_channel);
     }
 
-    left_channel = tostereo(left_channel, sample_width_, 1, 0);
-    right_channel = tostereo(right_channel, sample_width_, 0, 1);
+    left_channel = tostereo(left_channel, static_cast<int>(sample_width_), 1, 0);
+    right_channel = tostereo(right_channel, static_cast<int>(sample_width_), 0, 1);
 
-    return spawn(add(left_channel, right_channel, sample_width_));
+    return _spawn(add(left_channel, right_channel, static_cast<int>(sample_width_)));
 }
 
 // Implementation of the rms method
 double AudioSegment::rms() const {
     // Ensure data_ is in the correct format for the rms function
-    return rms(data_, sample_width_);
+    return rms(data_,static_cast<int>(sample_width_));
 }
 
 // Implementation of the dBFS method
-double AudioSegment::dBFS() const {
+float AudioSegment::dBFS() const {
     double rms_value = rms();
     if (rms_value == 0) {
         return -std::numeric_limits<double>::infinity();
@@ -297,12 +336,12 @@ double AudioSegment::dBFS() const {
 
 // Implementation of the max method
 int AudioSegment::max() const {
-    return max(data_, sample_width_);
+    return max(data_, static_cast<int>(sample_width_));
 }
 
 // Implementation of the max_possible_amplitude method
 double AudioSegment::max_possible_amplitude() const {
-    int bits = sample_width_ * 8;
+    int bits = static_cast<int>(sample_width_) * 8;
     double max_possible_val = std::pow(2, bits);
     return max_possible_val / 2;
 }
@@ -318,18 +357,18 @@ double AudioSegment::get_dc_offset(int channel) const {
     if (channels_ == 1) {
         data = data_;
     } else if (channel == 1) {
-        data = tomono(data_, sample_width_, 1, 0);
+        data = tomono(data_, static_cast<int>(sample_width_), 1, 0);
     } else {
-        data = tomono(data_, sample_width_, 0, 1);
+        data = tomono(data_, static_cast<int>(sample_width_), 0, 1);
     }
 
-    double avg_dc_offset = avg(data, sample_width_);
+    double avg_dc_offset = avg(data, static_cast<int>(sample_width_));
     return avg_dc_offset / max_possible_amplitude();
 }
 
 // Implementation of the max_dBFS method
-double AudioSegment::max_dBFS() const {
-    double max_value = max();  // Use the existing max() method
+float AudioSegment::max_dBFS() const {
+    double max_value = static_cast<double>(max());  // Use the existing max() method
     double max_amplitude = max_possible_amplitude();  // Use the existing max_possible_amplitude() method
 
     return ratio_to_db(max_value / max_amplitude);
@@ -341,24 +380,6 @@ double AudioSegment::duration_seconds() const {
         return static_cast<double>(frame_count()) / frame_rate_;
     }
     return 0.0;
-}
-
-AudioSegment AudioSegment::from_mp3(const std::string& file, const std::map<std::string, std::string>& parameters) {
-    std::map<std::string, int> int_parameters;
-    for (const auto& [key, value] : parameters) {
-        try {
-            int_parameters[key] = std::stoi(value);
-        } catch (const std::invalid_argument&) {
-            // Handle or log error for invalid conversion
-        }
-    }
-
-    // Default codec and duration
-    std::string codec = "libmp3lame"; // Replace with the appropriate codec if needed
-    int start_second = 0;
-    int duration = 0;
-
-    return AudioSegment::from_file(file, "mp3", codec, int_parameters, start_second, duration);
 }
 
 AudioSegment AudioSegment::from_mp3(const std::string& file, const std::map<std::string, std::string>& parameters) {
@@ -407,9 +428,10 @@ AudioSegment AudioSegment::_from_safe_wav(const std::string& file_path) {
                                std::istreambuf_iterator<char>());
 
     file.close();
-    return AudioSegment(data.data(), data.size());
-}
 
+    // Create and return AudioSegment using the vector
+    return AudioSegment(data);
+}
 
 std::ifstream AudioSegment::export(const std::string& out_f, const std::string& format,
                                    const std::string& codec, const std::string& bitrate,
@@ -495,15 +517,15 @@ std::ifstream AudioSegment::export(const std::string& out_f, const std::string& 
 }
 
 std::vector<uint8_t> AudioSegment::get_frame(int index) const {
-    size_t frame_start = index * this->frame_width;
-    size_t frame_end = frame_start + this->frame_width;
+    size_t frame_start = static_cast<size_t>(index * this->frame_width_);
+    size_t frame_end = static_cast<size_t>(frame_start + this->frame_width_);
     
-    if (frame_start >= this->_data.size()) {
+    if (frame_start >= static_cast<size_t>(this->_data.size())) {
         throw std::out_of_range("Frame index out of range");
     }
     
-    if (frame_end > this->_data.size()) {
-        frame_end = this->_data.size(); // Adjust frame_end if it exceeds data size
+    if (frame_end > static_cast<size_t>(this->_data.size())) {
+        frame_end = static_cast<size_t>(this->_data.size()); // Adjust frame_end if it exceeds data size
     }
     
     return std::vector<uint8_t>(this->_data.begin() + frame_start, this->_data.begin() + frame_end);
@@ -511,52 +533,69 @@ std::vector<uint8_t> AudioSegment::get_frame(int index) const {
 
 double AudioSegment::frame_count(int ms) const {
     if (ms >= 0) {
-        return ms * (this->frame_rate / 1000.0);
+        return static_cast<double>(ms * (static_cast<double>(this->frame_rate_) / 1000.0));
     } else {
-        return static_cast<double>(this->_data.size()) / this->frame_width;
+        return static_cast<double>(this->_data.size()) / this->frame_width_;
     }
 }
 
 // Helper function to execute a command and capture output
 std::vector<char> AudioSegment::execute_command(const std::string& command, const std::vector<char>& input_data) {
     std::array<char, 128> buffer;
-    std::string result;
-    std::shared_ptr<FILE> pipe(popen(command.c_str(), "w"), pclose);
-
+    std::vector<char> result;
+    
+    // Use popen with "r+" to allow both reading and writing to the process
+    std::shared_ptr<FILE> pipe(popen(command.c_str(), "r+"), pclose);
     if (!pipe) {
         throw std::runtime_error("popen() failed!");
     }
 
     // Write input data to the pipe
-    fwrite(input_data.data(), sizeof(char), input_data.size(), pipe.get());
-    fflush(pipe.get());
+    size_t written = fwrite(input_data.data(), sizeof(char), input_data.size(), pipe.get());
+    if (written != input_data.size()) {
+        throw std::runtime_error("fwrite() failed!");
+    }
+
+    // Close the writing end of the pipe (to signal EOF to the command)
+    if (fflush(pipe.get()) != 0) {
+        throw std::runtime_error("fflush() failed!");
+    }
 
     // Read the output from the pipe
-    std::shared_ptr<FILE> output(popen(command.c_str(), "r"), pclose);
-
-    if (!output) {
-        throw std::runtime_error("popen() failed!");
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result.insert(result.end(), buffer.data(), buffer.data() + strlen(buffer.data()));
     }
 
-    while (fgets(buffer.data(), buffer.size(), output.get()) != nullptr) {
-        result += buffer.data();
+    // Check if there's any error in reading
+    if (ferror(pipe.get())) {
+        throw std::runtime_error("fgets() failed!");
     }
 
-    // Convert the result string to a vector of chars
-    return std::vector<char>(result.begin(), result.end());
+    return result; // Return the result as a vector of chars
 }
 
 // Implementation of execute_conversion
 std::vector<char> AudioSegment::execute_conversion(const std::string& conversion_command, const std::vector<char>& stdin_data) const {
-    std::string command = conversion_command + " -"; // Append '-' to indicate output to stdout
-
-    // Execute the command and get the output
-    std::vector<char> output_data = execute_command(command, stdin_data);
-
-    // Check for errors (basic example, can be enhanced based on needs)
-    if (output_data.empty()) {
-        throw std::runtime_error("Failed to convert audio. No data returned.");
+    // Ensure the command ends with " -" to signify output to stdout
+    std::string command = conversion_command;
+    if (command.back() != ' ') {
+        command += " -";
     }
+
+    // Execute the command and capture the output
+    std::vector<char> output_data;
+    try {
+        output_data = execute_command(command, stdin_data);
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Failed to execute command: " + std::string(e.what()));
+    }
+
+    // Validate output data
+    if (output_data.empty()) {
+        throw std::runtime_error("Conversion failed: No output data returned.");
+    }
+
+    // Optionally, further checks on output_data could be added here based on your requirements
 
     return output_data;
 }
@@ -607,7 +646,6 @@ std::vector<char> AudioSegment::raw_data() const {
     return data_;
 }
 
-
 // Method to get the length of the audio segment in milliseconds
 size_t AudioSegment::length_in_milliseconds() const {
     // Check if the sample rate and frame width are properly initialized
@@ -625,39 +663,47 @@ size_t AudioSegment::length_in_milliseconds() const {
     return static_cast<size_t>(duration_in_seconds * 1000);
 }
 
+// Convert time (in milliseconds) to sample index
+uint32_t time_to_sample_index(int time_in_ms) const {
+    return (time_in_ms * frame_rate_) / 1000;
+}
 
 // New method to get a slice of samples
 std::vector<char> AudioSegment::get_sample_slice(uint32_t start_sample, uint32_t end_sample) const {
+    // Calculate maximum valid index
     uint32_t max_val = static_cast<uint32_t>(data_.size() / frame_width_);
 
+    // Helper lambda function to bound the value within range
     auto bounded = [max_val](uint32_t val, uint32_t default_val) {
         if (val == std::numeric_limits<uint32_t>::max()) {
             return default_val;
         }
-		/*
-        if (val < 0) {
-            return 0;
-        }
-		*/
+        // No negative values allowed
         if (val > max_val) {
             return max_val;
         }
         return val;
     };
 
+    // Bound the start and end sample indices
     start_sample = bounded(start_sample, 0);
     end_sample = bounded(end_sample, max_val);
 
+    // Calculate start and end indices for slicing
     size_t start_i = start_sample * frame_width_;
     size_t end_i = end_sample * frame_width_;
 
+    // Ensure end_i does not exceed data size
     end_i = std::min(end_i, data_.size());
 
+    // Slice the data
     std::vector<char> result(data_.begin() + start_i, data_.begin() + end_i);
 
-    // Handle missing frames by padding with silence if needed
+    // Calculate the expected length of the result
     size_t expected_length = (end_sample - start_sample) * frame_width_;
     size_t actual_length = result.size();
+
+    // If the result size is less than expected, pad with silence
     if (expected_length > actual_length) {
         // Define silence (all zeroes)
         std::vector<char> silence(frame_width_, 0);
@@ -665,7 +711,8 @@ std::vector<char> AudioSegment::get_sample_slice(uint32_t start_sample, uint32_t
         // Calculate number of missing frames
         size_t missing_frames = (expected_length - actual_length) / frame_width_;
 
-        if (missing_frames > 2 * frame_rate_ / 1000) { // Approx. 2 ms threshold
+        // Check if the missing frames exceed the 2 ms threshold
+        if (missing_frames > 2 * frame_rate_ / 1000) {
             throw CouldntDecodeError("Too many missing frames; exceeding 2 ms of silence");
         }
 
@@ -699,7 +746,7 @@ std::vector<AudioSegment> AudioSegment::split_to_mono() const {
         }
 
         std::unordered_map<std::string, int> overrides = {{"channels", 1}, {"frame_width", sample_width_}};
-        mono_channels.push_back(spawn(samples_for_current_channel, overrides));
+        mono_channels.push_back(_spawn(samples_for_current_channel, overrides));
     }
 
     return mono_channels;
@@ -728,7 +775,7 @@ std::size_t AudioSegmentHash::operator()(const AudioSegment& segment) const {
 
 // Helper function to convert milliseconds to frame index
 size_t millisecond_to_frame(size_t milliseconds, uint32_t frame_rate) {
-    return (milliseconds * frame_rate) / 1000;
+    return static_cast<size_t>((milliseconds * frame_rate) / 1000);
 }
 
 // Retrieve data based on millisecond
@@ -753,17 +800,8 @@ std::vector<char> AudioSegment::get_data_by_millisecond(size_t start_ms, size_t 
     size_t actual_length = result.size();
     if (expected_length > actual_length) {
         // Define silence (all zeroes)
-        std::vector<char> silence(frame_width_, 0);
-
-        // Calculate number of missing frames
-        size_t missing_frames = (expected_length - actual_length) / frame_width_;
-
-        if (missing_frames > 2 * frame_rate_ / 1000) { // Approx. 2 ms threshold
-            throw CouldntDecodeError("Too many missing frames; exceeding 2 ms of silence");
-        }
-
-        // Append silence to the result
-        result.insert(result.end(), missing_frames * frame_width_, 0);
+        size_t missing_length = expected_length - actual_length;
+        result.insert(result.end(), missing_length, 0); // Efficiently append silence
     }
 
     return result;
@@ -846,7 +884,6 @@ AudioSegment operator*(const AudioSegment& lhs, const AudioSegment& rhs) {
     return result;
 }
 
-
 // Helper method to apply gain
 AudioSegment AudioSegment::apply_gain(int db) const {
     AudioSegment result = *this;
@@ -864,7 +901,6 @@ AudioSegment AudioSegment::apply_gain(int db) const {
 
     return result;
 }
-
 
 AudioSegment AudioSegment::overlay(const AudioSegment& seg, int position, bool loop, int times, int gain_during_overlay) const {
     if (loop) {
@@ -917,9 +953,8 @@ AudioSegment AudioSegment::overlay(const AudioSegment& seg, int position, bool l
     output_data.insert(output_data.end(), data1.begin() + pos, data1.end());
 
     // Create a new AudioSegment with the output data
-    return spawn(output_data);
+    return _spawn(output_data);
 }
-
 
 // Implementation of the append method
 AudioSegment AudioSegment::append(const AudioSegment& seg, int crossfade) const {
@@ -933,7 +968,7 @@ AudioSegment AudioSegment::append(const AudioSegment& seg, int crossfade) const 
         // No crossfade, just concatenate
         std::vector<char> combined_data = seg1.raw_data();
         combined_data.insert(combined_data.end(), seg2.raw_data().begin(), seg2.raw_data().end());
-        return seg1.spawn(combined_data);
+        return seg1._spawn(combined_data);
     }
     else if (crossfade_frames > seg1.frame_count()) {
         throw std::invalid_argument("Crossfade is longer than the original AudioSegment.");
@@ -957,23 +992,11 @@ AudioSegment AudioSegment::append(const AudioSegment& seg, int crossfade) const 
     // Append the second segment excluding the crossfade portion
     combined_data.insert(combined_data.end(), seg2.slice(crossfade_frames).raw_data().begin(), seg2.slice(crossfade_frames).raw_data().end());
 
-    return seg1.spawn(combined_data);
-}
-
-
-// Helper method to append another AudioSegment
-AudioSegment AudioSegment::append(const AudioSegment& other, int crossfade) const {
-    if (frame_rate_ != other.frame_rate_ || channels_ != other.channels_) {
-        throw std::invalid_argument("Audio segments must have the same sample rate and channels.");
-    }
-
-    AudioSegment result = *this;
-    result.data_.insert(result.data_.end(), other.data_.begin(), other.data_.end());
-    return result;
+    return seg1._spawn(combined_data);
 }
 
 // Spawn a new AudioSegment with the given data and optional metadata overrides
-AudioSegment AudioSegment::spawn(const std::vector<char>& data, const std::unordered_map<std::string, int>& overrides) const {
+AudioSegment AudioSegment::_spawn(const std::vector<char>& data) const {
     AudioSegment new_segment;
 
     // Copy metadata from the current segment
@@ -981,20 +1004,6 @@ AudioSegment AudioSegment::spawn(const std::vector<char>& data, const std::unord
     new_segment.frame_rate_ = frame_rate_;
     new_segment.frame_width_ = frame_width_;
     new_segment.channels_ = channels_;
-
-    // Update with overrides
-    if (overrides.find("sample_width") != overrides.end()) {
-        new_segment.sample_width_ = overrides.at("sample_width");
-    }
-    if (overrides.find("frame_rate") != overrides.end()) {
-        new_segment.frame_rate_ = overrides.at("frame_rate");
-    }
-    if (overrides.find("frame_width") != overrides.end()) {
-        new_segment.frame_width_ = overrides.at("frame_width");
-    }
-    if (overrides.find("channels") != overrides.end()) {
-        new_segment.channels_ = overrides.at("channels");
-    }
 
     // Set the new data
     new_segment.data_ = data;
@@ -1067,11 +1076,8 @@ AudioSegment AudioSegment::set_frame_rate(int frame_rate) const {
     } else {
         converted_data = data_;
     }
-
-    std::unordered_map<std::string, int> overrides;
-    overrides["frame_rate"] = frame_rate;
-	AudioSegment audio_segment = AudioSegment::spawn(converted_data, overrides);
-    return audio_segment;
+	
+    return _spawn(converted_data);
 }
 
 // Convert data to stereo format
@@ -1129,10 +1135,16 @@ std::vector<std::vector<char>> AudioSegment::split_to_channels() const {
     std::vector<std::vector<char>> channels_data(channels_);
     size_t frame_size = sample_width_ * channels_;
 
+    // Resize each channel's data vector to fit the correct amount of data per channel
+    size_t num_frames = data_.size() / frame_size;  // Total number of frames in the audio segment
     for (int i = 0; i < channels_; ++i) {
-        channels_data[i].resize(data_.size() / channels_);
-        for (size_t j = 0; j < data_.size(); j += frame_size) {
-            std::memcpy(&channels_data[i][j / channels_ * sample_width_], &data_[j + i * sample_width_], sample_width_);
+        channels_data[i].resize(num_frames * sample_width_);
+    }
+
+    // Split the data into channels
+    for (size_t j = 0; j < num_frames; ++j) {
+        for (int i = 0; i < channels_; ++i) {
+            std::memcpy(&channels_data[i][j * sample_width_], &data_[j * frame_size + i * sample_width_], sample_width_);
         }
     }
 
@@ -1168,10 +1180,18 @@ AudioSegment AudioSegment::set_channels(int channels) const {
     std::unordered_map<std::string, int> overrides;
     overrides["channels"] = channels;
     overrides["frame_width"] = frame_width;
-	AudioSegment audio_segment = AudioSegment::spawn(converted_data, overrides);
-    return audio_segment;
+	converted_segment = _spawn(converted_data);
+	
+	// Update with overrides
+    if (overrides.find("frame_width") != overrides.end()) {
+        converted_segment.frame_width_ = overrides.at("frame_width");
+    }
+    if (overrides.find("channels") != overrides.end()) {
+        converted_segment.channels_ = overrides.at("channels");
+    }
+	
+    return converted_segment;
 }
-
 
 AudioSegment AudioSegment::set_sample_width(int sample_width) const {
     if (sample_width == sample_width_) {
@@ -1188,11 +1208,19 @@ AudioSegment AudioSegment::set_sample_width(int sample_width) const {
     std::unordered_map<std::string, int> overrides = {
         {"sample_width", sample_width},
         {"frame_width", new_frame_width}
-    };
-	AudioSegment audio_segment = AudioSegment::spawn(new_data, overrides);
-    return audio_segment;
+    };	
+   	converted_segment = _spawn(new_data);
+	
+	// Update with overrides
+    if (overrides.find("frame_width") != overrides.end()) {
+        converted_segment.frame_width_ = overrides.at("frame_width");
+    }
+    if (overrides.find("channels") != overrides.end()) {
+        converted_segment.channels_ = overrides.at("channels");
+    }
+	
+    return converted_segment;
 }
-
 
 // Synchronize metadata (channels, frame rate, sample width) across multiple AudioSegment instances
 std::vector<AudioSegment> AudioSegment::sync(const std::vector<AudioSegment>& segments) {
@@ -1226,10 +1254,9 @@ std::vector<AudioSegment> AudioSegment::sync(const std::vector<AudioSegment>& se
     return synced_segments;
 }
 
-
 // Convert milliseconds to frame count
 uint32_t AudioSegment::frame_count(uint32_t ms) const {
-    return (ms * frame_rate_) / 1000;
+    return static_cast<uint32_t>((ms * frame_rate_) / 1000);
 }
 
 // Parse position considering negative values and infinity
@@ -1245,13 +1272,6 @@ uint32_t AudioSegment::parse_position(double val) const {
     return frame_count(ms);
 }
 
-
-// Private constructor implementation
-AudioSegment::AudioSegment(std::vector<char> data, uint16_t sample_width, uint32_t frame_rate, 
-                           uint16_t channels, uint32_t frame_width)
-    : data_(std::move(data)), sample_width_(sample_width), frame_rate_(frame_rate), 
-      channels_(channels), frame_width_(frame_width) {}
-
 // Static method to create an empty audio segment with default metadata
 AudioSegment AudioSegment::empty() {
     // Default values
@@ -1263,8 +1283,6 @@ AudioSegment AudioSegment::empty() {
         1   // frame_width
     );
 }
-
-
 
 // Static method to generate a silent audio segment
 AudioSegment AudioSegment::silent(size_t duration_ms, uint32_t frame_rate) {
@@ -1278,7 +1296,6 @@ AudioSegment AudioSegment::silent(size_t duration_ms, uint32_t frame_rate) {
 
     return AudioSegment(data, sample_width, frame_rate, 1, frame_width);
 }
-
 
 // Static method to combine mono audio segments into a multi-channel segment
 AudioSegment AudioSegment::from_mono_audiosegments(const std::vector<AudioSegment>& mono_segments) {
@@ -1320,9 +1337,6 @@ AudioSegment AudioSegment::from_mono_audiosegments(const std::vector<AudioSegmen
 
     return AudioSegment(combined_data, sample_width, frame_rate, num_segments, sample_width * num_segments);
 }
-
-
-
 
 // Global functions
 std::vector<WavSubChunk> extract_wav_headers(const std::vector<char>& data) {
@@ -1439,7 +1453,6 @@ void fix_wav_headers(std::vector<char>& data) {
     std::memcpy(data.data() + data_chunk.position + 4, &data_size, sizeof(data_size));
 }
 
-
 // Helper function to execute a command and capture output
 std::string exec_command(const std::vector<std::string>& command_args, const std::string& stdin_data = "") {
     std::string command;
@@ -1462,13 +1475,34 @@ std::string exec_command(const std::vector<std::string>& command_args, const std
 
 // Function to handle temporary file creation and cleanup
 std::filesystem::path create_temp_file(const std::string& data) {
+    // Create a temporary file path with a unique name
     std::filesystem::path temp_path = std::filesystem::temp_directory_path() / "tempfile_XXXXXX.tmp";
+    
+    // Convert to std::string for use with mkstemp
+    std::string temp_path_string = temp_path.string();
+
+    // Generate a unique file path
+    int fd = mkstemp(temp_path_string.data());
+    if (fd == -1) {
+        throw std::runtime_error("Unable to create temporary file");
+    }
+
+    // Update the path with the actual unique file name
+    temp_path = std::filesystem::path(temp_path_string);
+
+    // Use RAII to open the file and ensure it closes properly
     std::ofstream temp_file(temp_path, std::ios::binary);
-    if (!temp_file) throw std::runtime_error("Unable to create temporary file");
+    if (!temp_file) {
+        throw std::runtime_error("Unable to open the temporary file");
+    }
 
+    // Write data
     temp_file.write(data.data(), data.size());
-    temp_file.close();
+    if (!temp_file) {
+        throw std::runtime_error("Error writing to the temporary file");
+    }
 
+    // No need to explicitly close; RAII will handle it
     return temp_path;
 }
 
