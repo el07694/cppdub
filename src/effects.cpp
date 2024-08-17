@@ -176,7 +176,9 @@ AudioSegment invert_phase(const AudioSegment& seg, std::pair<int, int> channels 
     } else {
         if (seg.channels() == 2) {
             // Split stereo into mono channels
-            auto [left, right] = seg.split_to_mono();
+            std::vector<AudioSegment> left_and_right = seg.split_to_mono();
+			AudioSegment left = left_and_right[0];
+			AudioSegment right = left_and_right[1];
             
             // Invert phase for the specified channel(s)
             if (channels == std::make_pair(1, 0)) {
@@ -202,9 +204,9 @@ AudioSegment low_pass_filter(const AudioSegment& seg, double cutoff) {
     std::vector<char> original_data = seg.raw_data();
     std::vector<char> filtered_data = original_data;
     
-    size_t frame_count = seg.frame_count();
-    size_t num_channels = seg.channels();
-    size_t sample_width = seg.sample_width();
+    size_t frame_count = static_cast<size_t>(seg.frame_count());
+    size_t num_channels = static_cast<size_t>(seg.channels_);
+    size_t sample_width = static_cast<size_t>(seg.sample_width_);
     
     // Convert raw data to sample array
     std::vector<int> original_samples(frame_count * num_channels);
@@ -242,9 +244,9 @@ AudioSegment high_pass_filter(const AudioSegment& seg, double cutoff) {
     std::vector<char> original_data = seg.raw_data();
     std::vector<char> filtered_data = original_data;
     
-    size_t frame_count = seg.frame_count();
-    size_t num_channels = seg.channels();
-    size_t sample_width = seg.sample_width();
+    size_t frame_count = static_cast<size_t>(seg.frame_count());
+    size_t num_channels = static_cast<size_t>(seg.channels_);
+    size_t sample_width = static_cast<size_t>(seg.sample_width_);
     
     // Convert raw data to sample array
     std::vector<int> original_samples(frame_count * num_channels);
@@ -288,7 +290,7 @@ AudioSegment pan(const AudioSegment& seg, double pan_amount) {
         throw std::invalid_argument("pan_amount should be between -1.0 (100% left) and +1.0 (100% right)");
     }
 
-    double max_boost_db = ratio_to_db(2.0);
+    double max_boost_db = static_cast<double>(ratio_to_db(2.0));
     double boost_db = std::abs(pan_amount) * max_boost_db;
 
     double boost_factor = db_to_float(boost_db);
@@ -324,15 +326,15 @@ AudioSegment apply_gain_stereo(const AudioSegment& seg, double left_gain = 0.0, 
     double r_mult_factor = db_to_float(right_gain);
 
     // Apply gain to left and right channels
-    auto left_data = audioop::mul(left.data(), left.sample_width(), l_mult_factor);
-    left_data = audioop::to_stereo(left_data, left.sample_width(), 1, 0);
+    auto left_data = mul(left.data(), static_cast<int>(left.sample_width_), static_cast<int>(l_mult_factor));
+    left_data = tostereo(left_data, static_cast<int>(left.sample_width_), 1, 0);
 
-    auto right_data = audioop::mul(right.data(), right.sample_width(), r_mult_factor);
-    right_data = audioop::to_stereo(right_data, right.sample_width(), 0, 1);
+    auto right_data = mul(right.data(), static_cast<int>(right.sample_width_), static_cast<int>(r_mult_factor));
+    right_data = tostereo(right_data, static_cast<int>(right.sample_width_), 0, 1);
 
     // Combine left and right channels
-    auto output_data = audioop::add(left_data, right_data, seg.sample_width());
+    auto output_data = add(left_data, right_data, std::max(left_data.size(),right_data.size()));
 
     // Create and return new AudioSegment
-    return seg._spawn(output_data, /*overrides*/ {{"channels", 2}, {"frame_width", 2 * seg.sample_width()}});
+    return seg._spawn(output_data);
 }
