@@ -183,12 +183,14 @@ float ratio_to_db(float ratio, float val2 = 0.0f, bool using_amplitude = true) {
         ratio /= val2;
     }
 
+    // Use appropriate formula based on amplitude or power
     if (using_amplitude) {
-        return 20.0 * std::log10(ratio);
+        return 20.0f * std::log10(ratio);
     } else { // using power
-        return 10.0 * std::log10(ratio);
+        return 10.0f * std::log10(ratio);
     }
 }
+
 
 std::vector<AudioSegment> make_chunks(const AudioSegment& audio_segment, size_t chunk_length_ms) {
     std::vector<AudioSegment> chunks;

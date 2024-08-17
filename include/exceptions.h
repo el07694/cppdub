@@ -39,6 +39,49 @@ public:
         : PyDubException("Operation Failed: " + message) {}
 };
 
+
+class TooManyMissingFrames : public PyDubException {
+public:
+    explicit TooManyMissingFrames(const std::string& message)
+        : PyDubException("File Not Found: " + message) {}
+};
+
+class InvalidDuration : public PyDubException {
+public:
+    explicit InvalidDuration(const std::string& message)
+        : PyDubException("File Not Found: " + message) {}
+};
+
+class InvalidTag : public PyDubException {
+public:
+    explicit InvalidTag(const std::string& message)
+        : PyDubException("File Not Found: " + message) {}
+};
+
+class InvalidID3TagVersion : public PyDubException {
+public:
+    explicit InvalidID3TagVersion(const std::string& message)
+        : PyDubException("File Not Found: " + message) {}
+};
+
+class CouldntDecodeError : public PyDubException {
+public:
+    explicit CouldntDecodeError(const std::string& message)
+        : PyDubException("File Not Found: " + message) {}
+};
+
+class CouldntEncodeError : public PyDubException {
+public:
+    explicit CouldntEncodeError(const std::string& message)
+        : PyDubException("File Not Found: " + message) {}
+};
+
+class MissingAudioParameter : public PyDubException {
+public:
+    explicit MissingAudioParameter(const std::string& message)
+        : PyDubException("File Not Found: " + message) {}
+};
+
 } // namespace cppdub
 
 #endif // CPPDUB_EXCEPTIONS_H
