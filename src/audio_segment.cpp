@@ -28,7 +28,7 @@
 #include <tuple>
 
 #include <iomanip>
-#include <openssl/evp.h> // For base64 encoding
+//#include <openssl/evp.h> // For base64 encoding
 
 
 // Add other necessary includes
