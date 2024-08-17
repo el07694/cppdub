@@ -198,7 +198,7 @@ AudioSegment AudioSegment::fade(double to_gain, double from_gain,
     // Original data before fade
     std::vector<char> before_fade = this->get_sample_slice(0, start_sample);
     if (from_gain != 0) {
-        before_fade = audioop::mul(before_fade, static_cast<int>(this->sample_width()), static_cast<int>(from_power)); // Assuming `audioop::mul` exists
+        before_fade = mul(before_fade, static_cast<int>(this->sample_width()), static_cast<int>(from_power)); // Assuming `audioop::mul` exists
     }
     output.insert(output.end(), before_fade.begin(), before_fade.end());
 
@@ -208,7 +208,7 @@ AudioSegment AudioSegment::fade(double to_gain, double from_gain,
         for (int i = 0; i < duration; ++i) {
             double volume_change = from_power + (scale_step * i);
             std::vector<char> chunk = this->get_sample_slice(start_sample + i, start_sample + i + 1);
-            chunk = audioop::mul(chunk, static_cast<int>(this->sample_width()), static_cast<int>(volume_change));
+            chunk = mul(chunk, static_cast<int>(this->sample_width()), static_cast<int>(volume_change));
             output.insert(output.end(), chunk.begin(), chunk.end());
         }
     } else {
@@ -220,7 +220,7 @@ AudioSegment AudioSegment::fade(double to_gain, double from_gain,
         for (int i = 0; i < fade_frames; ++i) {
             double volume_change = from_power + (scale_step * i);
             std::vector<char> sample = static_cast<std::vector<char>>(this->get_frame(start_frame + i)); // Assuming `get_frame` method exists
-            sample = audioop::mul(sample, static_cast<int>(this->sample_width()), static_cast<int>(volume_change));
+            sample = mul(sample, static_cast<int>(this->sample_width()), static_cast<int>(volume_change));
             output.insert(output.end(), sample.begin(), sample.end());
         }
     }
@@ -228,7 +228,7 @@ AudioSegment AudioSegment::fade(double to_gain, double from_gain,
     // Original data after fade
     std::vector<char> after_fade = this->get_sample_slice(end_sample, static_cast<uint32_t>(data_.size() / frame_width_));
     if (to_gain != 0) {
-        after_fade = audioop::mul(after_fade, static_cast<int>(this->sample_width()), static_cast<int>(db_to_float(to_gain)));
+        after_fade = mul(after_fade, static_cast<int>(this->sample_width()), static_cast<int>(db_to_float(to_gain)));
     }
     output.insert(output.end(), after_fade.begin(), after_fade.end());
 
@@ -250,7 +250,7 @@ AudioSegment AudioSegment::fade_in(int duration) const {
 // Implementation of reverse method
 AudioSegment AudioSegment::reverse() const {
     // Call the reverse function to reverse the audio data
-    std::vector<char> reversed_data = audioop::reverse(data_,static_cast<int>(sample_width_));
+    std::vector<char> reversed_data = reverse(data_,static_cast<int>(sample_width_));
 
     // Create a new AudioSegment with the reversed data
     return _spawn(reversed_data);
@@ -1223,7 +1223,7 @@ AudioSegment AudioSegment::set_sample_width(int sample_width) const {
     std::vector<char> new_data;
     // Convert data to the new sample width (using an equivalent conversion function)
     // For example, if you have a function for this conversion:
-    // new_data = audioop::lin2lin(data_, sample_width_, sample_width);
+    // new_data = lin2lin(data_, sample_width_, sample_width);
 
     std::unordered_map<std::string, int> overrides = {
         {"sample_width", sample_width},
