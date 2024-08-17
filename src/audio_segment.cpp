@@ -64,10 +64,8 @@ const std::unordered_map<std::string, std::string> AudioSegment::DEFAULT_CODECS 
     {"ogg", "libvorbis"}
 };
 
-//NOTE: MAKE SURE THAT chunk = segment(1000,200) is available
-
 // Convert time (in milliseconds) to sample index
-uint32_t time_to_sample_index(int time_in_ms) const {
+uint32_t AudioSegment::time_to_sample_index(int time_in_ms) const {
 	return (time_in_ms * frame_rate_) / 1000;
 }
 
@@ -1507,7 +1505,7 @@ std::filesystem::path create_temp_file(const std::string& data) {
 }
 
 AudioSegment from_file_using_temporary_files(const std::string& file_path, const std::string& format = "", const std::string& codec = "", 
-                                             const std::vector<std::string>& parameters = {}, float start_second = 0, float duration = 0) {
+                                             const std::vector<std::string>& parameters = {}, double start_second = 0, double duration = 0) {
     // Read input file data
     std::ifstream input_file(file_path, std::ios::binary | std::ios::ate);
     if (!input_file) throw std::runtime_error("Unable to open file: " + file_path);
