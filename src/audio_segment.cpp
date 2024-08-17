@@ -529,7 +529,7 @@ std::vector<uint8_t> AudioSegment::get_frame(int index) const {
     return std::vector<uint8_t>(this->_data.begin() + frame_start, this->_data.begin() + frame_end);
 }
 
-double AudioSegment::frame_count(int ms) const {
+double AudioSegment::frame_count(int ms = -1) const {
     if (ms >= 0) {
         return static_cast<double>(ms * (static_cast<double>(this->frame_rate_) / 1000.0));
     } else {
@@ -719,6 +719,28 @@ std::vector<char> AudioSegment::get_sample_slice(uint32_t start_sample, uint32_t
     }
 
     return result;
+}
+
+// New method to get a slice of the AudioSegment
+AudioSegment AudioSegment::slice(int64_t start_ms, int64_t end_ms) const {
+    // Convert start and end times from milliseconds to samples
+    int64_t start_sample = milliseconds_to_frames(start_ms, frame_rate_);
+    int64_t end_sample = milliseconds_to_frames(end_ms, frame_rate_);
+
+    // Handle negative values (from the end of the segment)
+    if (start_ms < 0) {
+        start_sample = frame_count() + start_sample;
+    }
+
+    if (end_ms < 0) {
+        end_sample = frame_count() + end_sample;
+    }
+
+    // Retrieve the sample slice
+    std::vector<char> slice_data = get_sample_slice(static_cast<uint32_t>(start_sample), static_cast<uint32_t>(end_sample));
+
+    // Return a new AudioSegment created from the sliced data
+    return _spawn(slice_data);
 }
 
 // Implementation of the split_to_mono method

@@ -108,7 +108,7 @@ public:
 	
 	// Method to get the number of frames for the given number of milliseconds,
     // or the number of frames in the whole AudioSegment if no argument is provided
-    double frame_count(int ms) const;
+    double frame_count(int ms = -1) const;
 
     // Sets the sample width and returns a new AudioSegment
     AudioSegment set_sample_width(int sample_width) const;
@@ -177,6 +177,7 @@ public:
 
     // New method to get a slice of samples
     std::vector<char> get_sample_slice(uint32_t start_sample, uint32_t end_sample) const;
+	AudioSegment slice(int64_t start_ms, int64_t end_ms) const
 
     // Operator overloads
     bool operator==(const AudioSegment& other) const;
