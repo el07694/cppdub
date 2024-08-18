@@ -8,6 +8,8 @@
 #include <random>
 #include "audio_segment.h"  // Include audio_segment.h
 
+float db_to_float(float db, bool using_amplitude = true);
+
 class SignalGenerator {
 public:
     // Constructor

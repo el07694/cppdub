@@ -11,6 +11,14 @@
 #include <numeric>
 #include <cstring>  // for std::memcpy
 
+float db_to_float(float db, bool using_amplitude = true) {
+    if (using_amplitude) {
+        return std::pow(10.0, db / 20.0);
+    } else { // using power
+        return std::pow(10.0, db / 10.0);
+    }
+}
+
 SignalGenerator::SignalGenerator(int sample_rate, int bit_depth)
     : sample_rate(sample_rate), bit_depth(bit_depth) {}
 
