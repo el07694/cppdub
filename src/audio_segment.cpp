@@ -1097,7 +1097,7 @@ std::vector<char> AudioSegment::convert_audio_data(const std::vector<char>& data
     
     codec_ctx->ch_layout.nb_channels = this->get_channels();  // Ensure 'channels_' is correctly defined and used
     codec_ctx->sample_fmt = AV_SAMPLE_FMT_S16; // Example format
-    //codec_ctx->ch_layout = av_get_default_ch_layout(codec_ctx->ch_layout.nb_channels); <- ERROR
+	codec_ctx->ch_layout = av_get_default_ch_layout(codec_ctx->ch_layout.nb_channels);
 
     // Open codec context
     AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_PCM_S16LE);
