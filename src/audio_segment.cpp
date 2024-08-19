@@ -1,8 +1,7 @@
-#include "utils.h"
+
+#define NOMINMAX
 #include "audio_segment.h"
-#include "cppaudioop.h"  // Make sure this header is included for the rms function
-#include "utils.h"       // Include for the ratio_to_db function
-#include "effects.h"
+#include "utils.h"
 
 #include <unordered_map>
 #include <cmath>
@@ -10,11 +9,12 @@
 #include <filesystem>
 #include <sys/stat.h>
 #include <fstream>
+#include <iostream>
 #include <cstring> // For std::memcpy
 #include <array>
 #include <type_traits>
 #include <functional>
-#include <algorithm> // For std::min and std::max
+
 #include <vector>
 #include <stdexcept>
 #include <iterator> // For std::back_inserter
@@ -37,7 +37,7 @@
 #else
 #include <unistd.h>
 #endif
-
+#include <algorithm> // For std::min and std::max
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/samplefmt.h>
@@ -65,15 +65,15 @@ const std::unordered_map<std::string, std::string> AudioSegment::DEFAULT_CODECS 
 };
 
 // Convert time (in milliseconds) to sample index
-uint32_t AudioSegment::time_to_sample_index(int time_in_ms) const {
+uint32_t AudioSegment::time_to_sample_index(int time_in_ms) {
 	return (time_in_ms * frame_rate_) / 1000;
 }
 
 // Overload the subscript operator to accept Range
-AudioSegment operator[](Range range) const {
+AudioSegment AudioSegment::operator[](Range range) const {
 	// Convert times to sample indices
-	uint32_t start_sample = time_to_sample_index(range.start_time_ms);
-	uint32_t end_sample = time_to_sample_index(range.end_time_ms);
+	uint32_t start_sample = static_cast<uint32_t>((static_cast<int>(range.start_time_ms) * frame_rate_) / 1000);
+	uint32_t end_sample = static_cast<uint32_t>((static_cast<int>(range.end_time_ms) * frame_rate_) / 1000);
 
 	// Get the slice using the get_sample_slice method
 	std::vector<char> sliced_data = get_sample_slice(start_sample, end_sample);
@@ -118,9 +118,7 @@ AudioSegment::~AudioSegment() {
 }
 
 // Static method to create an AudioSegment from a file
-AudioSegment AudioSegment::from_file(const std::string& file_path, const std::string& format,
-                                     const std::string& codec, const std::map<std::string, int>& parameters,
-                                     int start_second, int duration) {
+AudioSegment AudioSegment::from_file(const std::string& file_path, const std::string& format, const std::string& codec, const std::map<std::string, int>& parameters, int start_second, int duration) {
     std::string command = "ffmpeg -y -i " + file_path;
     if (!format.empty()) {
         command += " -f " + format;
@@ -136,7 +134,8 @@ AudioSegment AudioSegment::from_file(const std::string& file_path, const std::st
     }
     command += " -f wav -";
 
-    std::vector<char> output = execute_conversion(command, {});
+    AudioSegment audioSegmentInstance;
+    std::vector<char> output = audioSegmentInstance.execute_conversion(command, {});
     fix_wav_headers(output);
 
     // Dummy metadata for illustration; replace with actual metadata extraction
@@ -150,9 +149,9 @@ AudioSegment AudioSegment::from_file(const std::string& file_path, const std::st
     return AudioSegment(static_cast<const char*>(output.data()), output.size(), metadata);
 }
 
-AudioSegment AudioSegment::from_file(const std::string& file_path, const std::string& format,const std::map<std::string, int>& parameters) {
-    AudioSegment audio_segment = AudioSegment::from_file(file_path, format,"",parameters,0,0);	
-	return audio_segment    
+AudioSegment AudioSegment::from_file(const std::string& file_path, const std::string& format, const std::map<std::string, int>& parameters) {
+    // Call the six-parameter version of from_file explicitly
+    return AudioSegment::from_file(file_path, format, "", parameters, 0, 0);
 }
 
 // Implementation of the fade method
@@ -170,8 +169,8 @@ AudioSegment AudioSegment::fade(double to_gain, double from_gain,
     }
 
     // Adjust start and end
-    int length = this->length_in_milliseconds(); // Assuming you have a method to get duration in milliseconds
-    start = (start != -1) ? std::min(length, start) : 0;
+    int length = this->length_in_milliseconds(); // Get the length
+    start = (start != -1) ? std::min(length, start) : 0; // Adjust start
     end = (end != -1) ? std::min(length, end) : length;
 
     if (start < 0) start += length;
@@ -192,8 +191,8 @@ AudioSegment AudioSegment::fade(double to_gain, double from_gain,
     std::vector<char> output;
 
     // Convert start and end times to sample indices
-    uint32_t start_sample = time_to_sample_index(start);
-    uint32_t end_sample = time_to_sample_index(end);
+    uint32_t start_sample = static_cast<uint32_t>((start * frame_rate_) / 1000);
+    uint32_t end_sample = static_cast<uint32_t>((end * frame_rate_) / 1000);
 
     // Original data before fade
     std::vector<char> before_fade = this->get_sample_slice(0, start_sample);
@@ -219,7 +218,13 @@ AudioSegment AudioSegment::fade(double to_gain, double from_gain,
 
         for (int i = 0; i < fade_frames; ++i) {
             double volume_change = from_power + (scale_step * i);
-            std::vector<char> sample = static_cast<std::vector<char>>(this->get_frame(start_frame + i)); // Assuming `get_frame` method exists
+            auto sample_int = (this->get_frame(start_frame + i)); // Assuming `get_frame` method exists
+            std::vector<char> sample(sample_int.size()); // Create a char vector with the same size
+
+            // Convert std::vector<uint8_t> to std::vector<char>
+            std::transform(sample_int.begin(), sample_int.end(), sample.begin(),
+                [](uint8_t byte) { return static_cast<char>(byte); });
+
             sample = mul(sample, static_cast<int>(this->sample_width_), static_cast<int>(volume_change));
             output.insert(output.end(), sample.begin(), sample.end());
         }
@@ -238,19 +243,19 @@ AudioSegment AudioSegment::fade(double to_gain, double from_gain,
 // Implementation of fade_out method
 AudioSegment AudioSegment::fade_out(int duration) const {
     // Call fade method with to_gain set to -120 dB and end set to infinity
-    return fade(-120.0, 0.0, nullptr, duration);
+    return fade(-120.0, 0.0, -1,static_cast<int>(this->length_in_milliseconds()), duration);
 }
 
 // Implementation of fade_in method
 AudioSegment AudioSegment::fade_in(int duration) const {
     // Call fade method with from_gain set to -120 dB and start set to 0
-    return fade(0.0, -120.0, 0, nullptr, duration);
+    return fade(0.0, -120.0, 0, -1, duration);
 }
 
 // Implementation of reverse method
 AudioSegment AudioSegment::reverse() const {
     // Call the reverse function to reverse the audio data
-    std::vector<char> reversed_data = reverse(data_,static_cast<int>(sample_width_));
+    std::vector<char> reversed_data = _reverse(data_,static_cast<int>(sample_width_));
 
     // Create a new AudioSegment with the reversed data
     return _spawn(reversed_data);
@@ -276,31 +281,33 @@ std::string base64_encode(const std::vector<char>& data) {
 */
 
 // Implementation of remove_dc_offset
-AudioSegment AudioSegment::remove_dc_offset(int channel, int offset) const {
+AudioSegment AudioSegment::remove_dc_offset(int channel, double offset) const {
     if (channel && (channel < 1 || channel > 2)) {
         throw std::invalid_argument("channel value must be None, 1 (left) or 2 (right)");
     }
-    if (offset && (offset < -1.0 || offset > 1.0)) {
+    if (offset < -1.0 || offset > 1.0) {
         throw std::invalid_argument("offset value must be in range -1.0 to 1.0");
     }
 
+    int offset_value = 0;
     if (offset) {
-        offset = static_cast<int>(round(offset * max_possible_amplitude()));
+        offset_value = static_cast<int>(round(offset * this->max_possible_amplitude()));
     }
 
-    auto remove_data_dc = [this, offset](const std::vector<char>& data) {
-        if (!offset) {
-            offset = static_cast<int>(round(avg(data, static_cast<int>(sample_width_))));
+    auto remove_data_dc = [this, offset_value](const std::vector<char>& data) {
+        int current_offset = offset_value;
+        if (!offset_value) {
+            current_offset = static_cast<int>(round(_avg(data, static_cast<int>(sample_width_))));
         }
-        return bias(data, static_cast<int>(sample_width_), -offset);
-    };
+        return bias(data, static_cast<int>(sample_width_), -current_offset);
+        };
 
     if (channels_ == 1) {
         return _spawn(remove_data_dc(data_));
     }
 
-    auto left_channel = tomono(data_, static_cast<int>(sample_width_), 1, 0);
-    auto right_channel = tomono(data_, static_cast<int>(sample_width_), 0, 1);
+    std::vector<char> left_channel = tomono(data_, static_cast<int>(sample_width_), 1, 0);
+    std::vector<char> right_channel = tomono(data_, static_cast<int>(sample_width_), 0, 1);
 
     if (!channel || channel == 1) {
         left_channel = remove_data_dc(left_channel);
@@ -319,7 +326,7 @@ AudioSegment AudioSegment::remove_dc_offset(int channel, int offset) const {
 // Implementation of the rms method
 double AudioSegment::rms() const {
     // Ensure data_ is in the correct format for the rms function
-    return rms(data_,static_cast<int>(sample_width_));
+    return _rms(data_,static_cast<int>(sample_width_));
 }
 
 // Implementation of the dBFS method
@@ -334,7 +341,7 @@ float AudioSegment::dBFS() const {
 
 // Implementation of the max method
 int AudioSegment::max() const {
-    return max(data_, static_cast<int>(sample_width_));
+    return _max(data_, static_cast<int>(sample_width_));
 }
 
 // Implementation of the max_possible_amplitude method
@@ -360,7 +367,7 @@ double AudioSegment::get_dc_offset(int channel) const {
         data = tomono(data_, static_cast<int>(sample_width_), 0, 1);
     }
 
-    double avg_dc_offset = avg(data, static_cast<int>(sample_width_));
+    double avg_dc_offset = _avg(data, static_cast<int>(sample_width_));
     return avg_dc_offset / max_possible_amplitude();
 }
 
@@ -380,24 +387,24 @@ double AudioSegment::duration_seconds() const {
     return 0.0;
 }
 
-AudioSegment AudioSegment::from_mp3(const std::string& file, const std::map<std::string, std::string>& parameters) {
-    AudioSegment audio_segment = AudioSegment::from_file(file, "mp3", parameters);	
-	return audio_segment
+AudioSegment AudioSegment::from_mp3(const std::string& file, const std::map<std::string, int>& parameters) {
+    // Call the three-parameter version of from_file
+    return AudioSegment::from_file(file, "mp3", parameters);
 }
 
-AudioSegment AudioSegment::from_flv(const std::string& file, const std::map<std::string, std::string>& parameters) {
+AudioSegment AudioSegment::from_flv(const std::string& file, const std::map<std::string, int>& parameters) {
     AudioSegment audio_segment = AudioSegment::from_file(file, "flv", parameters);	
-	return audio_segment
+    return audio_segment;
 }
 
-AudioSegment AudioSegment::from_ogg(const std::string& file, const std::map<std::string, std::string>& parameters) {
+AudioSegment AudioSegment::from_ogg(const std::string& file, const std::map<std::string, int>& parameters) {
     AudioSegment audio_segment = AudioSegment::from_file(file, "ogg", parameters);	
-	return audio_segment
+    return audio_segment;
 }
 
-AudioSegment AudioSegment::from_wav(const std::string& file, const std::map<std::string, std::string>& parameters) {
+AudioSegment AudioSegment::from_wav(const std::string& file, const std::map<std::string, int>& parameters) {
     AudioSegment audio_segment = AudioSegment::from_file(file, "wav", parameters);	
-	return audio_segment
+    return audio_segment;
 }
 
 AudioSegment AudioSegment::from_raw(const std::string& file, int sample_width, int frame_rate, int channels) {
@@ -431,7 +438,7 @@ AudioSegment AudioSegment::_from_safe_wav(const std::string& file_path) {
     return AudioSegment(data);
 }
 
-std::ifstream AudioSegment::export(const std::string& out_f, const std::string& format,
+std::ofstream AudioSegment::export_segment(const std::string& out_f, const std::string& format,
                                    const std::string& codec, const std::string& bitrate,
                                    const std::vector<std::string>& parameters, const std::map<std::string, std::string>& tags,
                                    const std::string& id3v2_version, const std::string& cover) {
@@ -458,11 +465,10 @@ std::ifstream AudioSegment::export(const std::string& out_f, const std::string& 
 
         // Write WAV headers and data to the temp file
         // Assume appropriate WAV header writing here
-        data.write(reinterpret_cast<const char*>(this->_data.data()), this->_data.size());
-        data.close();
+        data.write(reinterpret_cast<const char*>(this->raw_data().data()), this->raw_data().size());
     } else {
         // Write WAV data directly
-        out_file.write(reinterpret_cast<const char*>(this->_data.data()), this->_data.size());
+        out_file.write(reinterpret_cast<const char*>(this->raw_data().data()), this->raw_data().size());
         out_file.flush();
         return out_file;
     }
@@ -506,7 +512,6 @@ std::ifstream AudioSegment::export(const std::string& out_f, const std::string& 
     out_file << temp_output.rdbuf();
 
     // Cleanup
-    temp_output.close();
     std::remove(temp_data_filename.c_str());
     std::remove(temp_output_filename.c_str());
 
@@ -518,22 +523,22 @@ std::vector<uint8_t> AudioSegment::get_frame(int index) const {
     size_t frame_start = static_cast<size_t>(index * this->frame_width_);
     size_t frame_end = static_cast<size_t>(frame_start + this->frame_width_);
     
-    if (frame_start >= static_cast<size_t>(this->_data.size())) {
+    if (frame_start >= static_cast<size_t>(this->raw_data().size())) {
         throw std::out_of_range("Frame index out of range");
     }
     
-    if (frame_end > static_cast<size_t>(this->_data.size())) {
-        frame_end = static_cast<size_t>(this->_data.size()); // Adjust frame_end if it exceeds data size
+    if (frame_end > static_cast<size_t>(this->raw_data().size())) {
+        frame_end = static_cast<size_t>(this->raw_data().size()); // Adjust frame_end if it exceeds data size
     }
     
-    return std::vector<uint8_t>(this->_data.begin() + frame_start, this->_data.begin() + frame_end);
+    return std::vector<uint8_t>(this->raw_data().begin() + frame_start, this->raw_data().begin() + frame_end);
 }
 
 double AudioSegment::frame_count(int ms = -1) const {
     if (ms >= 0) {
         return static_cast<double>(ms * (static_cast<double>(this->frame_rate_) / 1000.0));
     } else {
-        return static_cast<double>(this->_data.size()) / this->frame_width_;
+        return static_cast<double>(this->raw_data().size()) / this->frame_width_;
     }
 }
 
@@ -543,7 +548,7 @@ std::vector<char> AudioSegment::execute_command(const std::string& command, cons
     std::vector<char> result;
     
     // Use popen with "r+" to allow both reading and writing to the process
-    std::shared_ptr<FILE> pipe(popen(command.c_str(), "r+"), pclose);
+    std::shared_ptr<FILE> pipe(_popen(command.c_str(), "r+"), _pclose);
     if (!pipe) {
         throw std::runtime_error("popen() failed!");
     }
@@ -599,10 +604,10 @@ std::vector<char> AudioSegment::execute_conversion(const std::string& conversion
 }
 
 void AudioSegment::initialize_ffmpeg() {
-    // Register all codecs, formats, and protocols
-    av_register_all();
-    avformat_network_init();
-    avcodec_register_all();
+    // No need to register codecs, formats, and protocols manually
+    // as they are registered automatically in modern FFmpeg versions.
+
+    avformat_network_init();  // Still required for network protocols
 
     // Optional: Set FFmpeg logging level
     av_log_set_level(AV_LOG_INFO); // Adjust logging level as needed
@@ -662,7 +667,7 @@ size_t AudioSegment::length_in_milliseconds() const {
 }
 
 // Convert time (in milliseconds) to sample index
-uint32_t time_to_sample_index(int time_in_ms) const {
+uint32_t AudioSegment::time_to_sample_index(int time_in_ms) {
     return (time_in_ms * frame_rate_) / 1000;
 }
 
@@ -766,7 +771,10 @@ std::vector<AudioSegment> AudioSegment::split_to_mono() const {
         }
 
         std::unordered_map<std::string, int> overrides = {{"channels", 1}, {"frame_width", sample_width_}};
-        mono_channels.push_back(_spawn(samples_for_current_channel, overrides));
+        AudioSegment slice_x = AudioSegment::_spawn(samples_for_current_channel);
+        slice_x.frame_width_ = sample_width_;
+        slice_x.channels_ = 1;
+        mono_channels.push_back(slice_x);
     }
 
     return mono_channels;
@@ -786,10 +794,10 @@ bool AudioSegment::operator!=(const AudioSegment& other) const {
 }
 
 std::size_t AudioSegmentHash::operator()(const AudioSegment& segment) const {
-    std::size_t h1 = std::hash<uint16_t>{}(segment.sample_width_);
-    std::size_t h2 = std::hash<uint32_t>{}(segment.frame_rate_);
-    std::size_t h3 = std::hash<uint16_t>{}(segment.channels_);
-    std::size_t h4 = std::hash<std::string>{}(std::string(segment.data_.begin(), segment.data_.end()));
+    std::size_t h1 = std::hash<uint16_t>{}(segment.get_sample_width());
+    std::size_t h2 = std::hash<uint32_t>{}(segment.get_frame_rate());
+    std::size_t h3 = std::hash<uint16_t>{}(segment.get_channels());
+    std::size_t h4 = std::hash<std::string>{}(std::string(segment.raw_data().begin(), segment.raw_data().end()));
     return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3);
 }
 
@@ -801,8 +809,8 @@ size_t millisecond_to_frame(size_t milliseconds, uint32_t frame_rate) {
 // Retrieve data based on millisecond
 std::vector<char> AudioSegment::get_data_by_millisecond(size_t start_ms, size_t end_ms) const {
     // Convert milliseconds to frame indices
-    size_t start_frame = millisecond_to_frame(start_ms, frame_rate_);
-    size_t end_frame = millisecond_to_frame(end_ms, frame_rate_);
+    size_t start_frame = static_cast<size_t>((start_ms * this->get_frame_rate()) / 1000);
+    size_t end_frame = static_cast<size_t>((end_ms * this->get_frame_rate()) / 1000);
 
     // Ensure indices are within bounds
     start_frame = std::min(start_frame, data_.size() / frame_width_);
@@ -899,10 +907,13 @@ AudioSegment operator*(const AudioSegment& lhs, const AudioSegment& rhs) {
 
     // Ensure data values are within valid range, e.g., 0 to 255 for 8-bit audio
     std::transform(result.data_.begin(), result.data_.end(), result.data_.begin(),
-                   [](char sample) { return std::min(std::max(sample, 0), 255); });
+        [](char sample) {
+            return static_cast<char>(std::min(std::max(static_cast<int>(sample), 0), 255));
+        });
 
     return result;
 }
+
 
 // Helper method to apply gain
 AudioSegment AudioSegment::apply_gain(int db) const {
@@ -916,11 +927,13 @@ AudioSegment AudioSegment::apply_gain(int db) const {
 
     for (size_t i = 0; i < num_samples; ++i) {
         int16_t* sample = reinterpret_cast<int16_t*>(result.data_.data() + i * sizeof(int16_t));
-        *sample = std::clamp(*sample + gain_factor, std::numeric_limits<int16_t>::min(), std::numeric_limits<int16_t>::max());
+        // Ensure that all the arguments to std::clamp are of the same type (int16_t)
+        *sample = std::clamp<int16_t>(*sample + gain_factor, std::numeric_limits<int16_t>::min(), std::numeric_limits<int16_t>::max());
     }
 
     return result;
 }
+
 
 AudioSegment AudioSegment::overlay(const AudioSegment& seg, int position, bool loop, int times, int gain_during_overlay) const {
     if (loop) {

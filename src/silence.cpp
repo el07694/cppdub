@@ -2,7 +2,6 @@
 #include <cmath>
 #include <iterator>
 #include <stdexcept>
-#include "audio_segment.h"
 
 // Helper function to convert dB to float
 double db_to_float(double db) {

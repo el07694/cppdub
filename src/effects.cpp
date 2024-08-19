@@ -1,10 +1,6 @@
 #include "effects.h"
-#include "utils.h"
-#include "audio_segment.h"
+
 #include <vector>
-#include "silence.h" // For split_on_silence
-#include "exceptions.h" // For InvalidDuration
-#include "cppaudioop.h"
 
 #include <cmath>
 #include <array>

@@ -3,14 +3,14 @@
 
 #include <cmath>           // For math functionalities
 #include <vector>          // For dynamic arrays (equivalent to Python's list)
-#include <functional>
-#include "utils.h"         // For db_to_float, ratio_to_db, register_pydub_effect, make_chunks, audioop, get_min_max_value
 #include "silence.h"       // For split_on_silence
 #include "exceptions.h"    // For TooManyMissingFrames, InvalidDuration
 #include "audio_segment.h" // For AudioSegment class
+#include <functional>
+
 
 // Other declarations or function prototypes specific to effects
-
+class AudioSegment;  // Forward declaration of AudioSegment
 
 void apply_mono_filter_to_each_channel(AudioSegment& seg, std::function<AudioSegment(const AudioSegment&)> filter_fn);
 

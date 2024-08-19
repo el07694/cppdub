@@ -1,5 +1,4 @@
 #include "utils.h"
-#include "audio_segment.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -16,9 +15,10 @@
 #include <utility> // for std::pair
 #include <cerrno>
 #include <functional>
-#include <nlohmann/json.hpp> // Include the nlohmann/json library
+#include <nlohmann/json.hpp> // Include the json library
 #include <set>
 
+#define NOMINMAX
 #ifdef _WIN32
 #include <windows.h>
 #include <io.h>
@@ -66,7 +66,7 @@ std::string get_array_type(int bit_depth, bool signed_type = true) {
     if (it != ARRAY_TYPES.end()) {
         std::string type = it->second;
         if (!signed_type) {
-            type = std::toupper(type[0]) + type.substr(1); // Convert first letter to uppercase
+            type = static_cast<char>(std::toupper(type[0])) + type.substr(1);  // Convert first letter to uppercase
         }
         return type;
     }
@@ -324,14 +324,14 @@ std::string fsdecode(const std::string& path) {
     return path;
 }
 
-nlohmann::json get_extra_info(const std::string& stderr) {
+nlohmann::json get_extra_info(const std::string& stderr_) {
     nlohmann::json extra_info;
 
     // Adjusted regex pattern to match Python regex more closely
     std::regex re_stream(R"( *(Stream #0[:\.](\d+)):(.*?)(?:\n(?: *)*(Stream #0[:\.](\d+)):(.*?))?)", std::regex::extended);
 
     // Create an iterator for all matches
-    auto begin = std::sregex_iterator(stderr.begin(), stderr.end(), re_stream);
+    auto begin = std::sregex_iterator(stderr_.begin(), stderr_.end(), re_stream);
     auto end = std::sregex_iterator();
 
     for (std::sregex_iterator i = begin; i != end; ++i) {
@@ -367,32 +367,6 @@ nlohmann::json get_extra_info(const std::string& stderr) {
     }
 
     return extra_info;
-}
-
-// Function to execute a command and capture its output
-std::string exec_command(const std::vector<std::string>& command_args, const std::string& stdin_data = "") {
-    std::string command;
-    for (const auto& arg : command_args) {
-        // Properly quote each argument to handle spaces and special characters
-        command += "\"" + arg + "\" ";
-    }
-
-    std::array<char, 128> buffer;
-    std::string result;
-    
-    #ifdef _WIN32
-        std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(command.c_str(), "r"), _pclose);
-    #else
-        std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
-    #endif
-    
-    if (!pipe) throw std::runtime_error("popen() failed!");
-
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-        result += buffer.data();
-    }
-
-    return result;
 }
 
 // Overload for single string command

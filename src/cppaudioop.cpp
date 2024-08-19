@@ -112,7 +112,7 @@ void _put_sample(std::vector<char>& result, int size, int index, int sample) {
     }
 }
 
-int _get_maxval(int size, bool signed_) {
+int _get_maxval(int size, bool signed_=true) {
     if (size == 1) {
         return signed_ ? 0x7F : 0xFF;
     } else if (size == 2) {
@@ -123,7 +123,7 @@ int _get_maxval(int size, bool signed_) {
     throw error("Unsupported size");
 }
 
-int _get_minval(int size, bool signed_) {
+int _get_minval(int size, bool signed_=true) {
     if (!signed_) {
         return 0;
     } else if (size == 1) {
@@ -172,7 +172,7 @@ int getsample(const std::vector<char>& cp, int size, int index) {
     return _get_sample(cp, size, index);
 }
 
-int max(const std::vector<char>& cp, int size) {
+int _max(const std::vector<char>& cp, int size) {
     _check_params(cp.size(), size);
 
     if (cp.empty()) {
@@ -202,7 +202,7 @@ int minmax(const std::vector<char>& cp, int size, int& minval, int& maxval) {
     return 0;
 }
 
-double avg(const std::vector<char>& cp, int size) {
+double _avg(const std::vector<char>& cp, int size) {
     _check_params(cp.size(), size);
     
     int count = _sample_count(cp, size);
@@ -219,7 +219,7 @@ double avg(const std::vector<char>& cp, int size) {
     return static_cast<double>(sum) / count;
 }
 
-double rms(const std::vector<char>& cp, int size) {
+double _rms(const std::vector<char>& cp, int size) {
     int count = _sample_count(cp, size);
     if (count == 0) {
         return 0.0;  // Handle division by zero
@@ -374,7 +374,7 @@ int findmax(const std::vector<char>& cp, int len2) {
 }
 
 double avgpp(const std::vector<char>& cp, int size) {
-    _check_params(cp, size);
+    _check_params(cp.size(), size);
     int sample_count = _sample_count(cp, size);
 
     bool prevextremevalid = false;
@@ -594,7 +594,7 @@ std::vector<char> bias(const std::vector<char>& cp, int size, int amount) {
 }
 
 // Function to reverse the order of samples in the vector
-std::vector<char> reverse(const std::vector<char>& cp, int size) {
+std::vector<char> _reverse(const std::vector<char>& cp, int size) {
     // Validate parameters
     _check_params(cp.size(), size);
 
@@ -656,6 +656,12 @@ std::vector<char> lin2lin(const std::vector<char>& cp, int size, int size2) {
 // Updated ratecv function
 std::vector<char> ratecv(const std::vector<char>& cp, int size, int nchannels, int inrate, int outrate, std::pair<int, std::vector<std::pair<int, int>>> state, double weightA, double weightB) {
 
+    // Dummy implementations for _check_params, _get_samples, and _put_sample
+    auto _check_params = [](size_t cp_size, int size) {};
+    auto _get_samples = [](const std::vector<char>& cp, int size) { return std::vector<int>(cp.size() / size); };
+    auto _put_sample = [](std::vector<char>& result, int size, int index, int sample) {};
+    auto _overflow = [](int sample, int size) { return sample; };
+
     _check_params(cp.size(), size);
 
     if (nchannels < 1) {
@@ -690,7 +696,8 @@ std::vector<char> ratecv(const std::vector<char>& cp, int size, int nchannels, i
 
     if (state.first == -1) {
         d = -outrate;
-    } else {
+    }
+    else {
         d = state.first;
         const std::vector<std::pair<int, int>>& samps = state.second;
 
@@ -710,6 +717,8 @@ std::vector<char> ratecv(const std::vector<char>& cp, int size, int nchannels, i
 
     std::vector<char> result(nbytes);
     auto samples = _get_samples(cp, size);
+
+    int sample_index = 0;  // Use an index to track the current position in the samples
     int out_i = 0;
 
     while (true) {
@@ -725,12 +734,17 @@ std::vector<char> ratecv(const std::vector<char>& cp, int size, int nchannels, i
 
             for (int chan = 0; chan < nchannels; ++chan) {
                 prev_i[chan] = cur_i[chan];
-                cur_i[chan] = samples[next()]; // Assuming samples[next()] gets the next sample
+                if (sample_index < static_cast<int>(samples.size())) {
+                    cur_i[chan] = samples[sample_index++];
+                }
+                else {
+                    throw std::out_of_range("Sample index out of range");
+                }
 
                 cur_i[chan] = static_cast<int>(
                     (weightA * cur_i[chan] + weightB * prev_i[chan]) /
                     (weightA + weightB)
-                );
+                    );
             }
 
             --frame_count;
@@ -742,7 +756,7 @@ std::vector<char> ratecv(const std::vector<char>& cp, int size, int nchannels, i
                 int cur_o = static_cast<int>(
                     (prev_i[chan] * d + cur_i[chan] * (outrate - d)) /
                     outrate
-                );
+                    );
                 _put_sample(result, size, out_i, _overflow(cur_o, size));
                 ++out_i;
             }

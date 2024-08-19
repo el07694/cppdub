@@ -24,7 +24,12 @@
 #include <libavutil/avutil.h>
 #include <libavutil/log.h>
 #include <filesystem>
-#include <limits> // For std::numeric_limits
+#include <limits>
+
+
+#include "cppaudioop.h"
+
+
 
 // Forward declaration of custom hash function
 struct AudioSegmentHash;
@@ -76,32 +81,35 @@ public:
     explicit AudioSegment(const std::string& file_path);
 	//AudioSegment(const char* data, size_t size);
     AudioSegment(const char* data, size_t size, const std::map<std::string, int>& metadata);
-	AudioSegment(const std::vector<uint8_t>& data)
+    AudioSegment(const std::vector<uint8_t>& data);
     ~AudioSegment();
+
+    uint16_t get_sample_width() const { return sample_width_; }
+    uint32_t get_frame_rate() const { return frame_rate_; }
+    uint16_t get_channels() const { return channels_; }
 	
 
     
     // Static method to create an AudioSegment from file
+    static AudioSegment from_file(const std::string& file_path, const std::string& format, const std::map<std::string, int>& parameters);
+
     static AudioSegment from_file(const std::string& file_path, const std::string& format,
                                      const std::string& codec, const std::map<std::string, int>& parameters,
                                      int start_second, int duration);
 							
-	static AudioSegment from_file(const std::string& file_path, const std::string& format,const std::map<std::string, int>& parameters);
 
-    static AudioSegment from_mp3(const std::string& file, const std::map<std::string, std::string>& parameters);
-    static AudioSegment from_flv(const std::string& file, const std::map<std::string, std::string>& parameters);
-    static AudioSegment from_ogg(const std::string& file, const std::map<std::string, std::string>& parameters);
-    static AudioSegment from_wav(const std::string& file, const std::map<std::string, std::string>& parameters);
+
+    static AudioSegment from_mp3(const std::string& file, const std::map<std::string, int>& parameters);
+    static AudioSegment from_flv(const std::string& file, const std::map<std::string, int>& parameters);
+    static AudioSegment from_ogg(const std::string& file, const std::map<std::string, int>& parameters);
+    static AudioSegment from_wav(const std::string& file, const std::map<std::string, int>& parameters);
     static AudioSegment from_raw(const std::string& file, int sample_width, int frame_rate, int channels);
 
     // Static method to create an AudioSegment from a WAV file
     static AudioSegment _from_safe_wav(const std::string& file_path);
 
     // Method to export an AudioSegment to a file with given options
-    std::ifstream export(const std::string& out_f, const std::string& format,
-                                   const std::string& codec, const std::string& bitrate,
-                                   const std::vector<std::string>& parameters, const std::map<std::string, std::string>& tags,
-                                   const std::string& id3v2_version, const std::string& cover);
+    std::ofstream export_segment(const std::string& out_f, const std::string& format, const std::string& codec, const std::string& bitrate, const std::vector<std::string>& parameters, const std::map<std::string, std::string>& tags, const std::string& id3v2_version, const std::string& cover);
 
     // Method to get a specific frame from the AudioSegment
     std::vector<uint8_t> get_frame(int index) const;
@@ -177,18 +185,18 @@ public:
 
     // New method to get a slice of samples
     std::vector<char> get_sample_slice(uint32_t start_sample, uint32_t end_sample) const;
-	AudioSegment slice(int64_t start_ms, int64_t end_ms) const
+    AudioSegment slice(int64_t start_ms, int64_t end_ms) const;
 
     // Operator overloads
     bool operator==(const AudioSegment& other) const;
     bool operator!=(const AudioSegment& other) const;
     AudioSegment operator+(const AudioSegment& other) const;
     AudioSegment operator+(int db) const;
-    AudioSegment operator+(int db, const AudioSegment& segment);
-    AudioSegment operator-(const AudioSegment& segment, int db); // Corrected operator overload
-    AudioSegment operator-(const AudioSegment& lhs, const AudioSegment& rhs); // Corrected operator overload
-    AudioSegment operator*(const AudioSegment& segment, int times); // Corrected operator overload
-    AudioSegment operator*(const AudioSegment& lhs, const AudioSegment& rhs); // Corrected operator overload
+    friend AudioSegment operator+(int db, const AudioSegment& segment);
+    friend AudioSegment operator-(const AudioSegment& segment, int db); // Corrected operator overload
+    friend AudioSegment operator-(const AudioSegment& lhs, const AudioSegment& rhs); // Corrected operator overload
+    friend AudioSegment operator*(const AudioSegment& segment, int times); // Corrected operator overload
+    friend AudioSegment operator*(const AudioSegment& lhs, const AudioSegment& rhs); // Corrected operator overload
     AudioSegment operator[](Range range) const;
 	
 	/**
@@ -262,10 +270,10 @@ public:
     double get_dc_offset(int channel) const;
 	
 	// Declaration of the remove_dc_offset method
-    AudioSegment remove_dc_offset(int channel, int offset) const;
+    AudioSegment AudioSegment::remove_dc_offset(int channel, double offset) const;
     double max_possible_amplitude() const;
 	
-	uint32_t time_to_sample_index(int time_in_ms) const;
+	uint32_t time_to_sample_index(int time_in_ms);
 
     // Synchronize metadata (channels, frame rate, sample width) across multiple AudioSegment instances
     static std::vector<AudioSegment> sync(const std::vector<AudioSegment>& segments);
@@ -291,17 +299,17 @@ public:
     static std::vector<char> execute_command(const std::string& command, const std::vector<char>& input_data);
     
 	
-	static AudioSegment _spawn(const std::vector<char>& data) const;
+	AudioSegment _spawn(const std::vector<char>& data) const;
 	
-	static std::vector<char> convert_audio_data(const std::vector<char>& data, int src_rate, int dest_rate) const;
+	std::vector<char> convert_audio_data(const std::vector<char>& data, int src_rate, int dest_rate) const;
 	
-	static AudioSegment set_frame_rate(int frame_rate) const;
+	AudioSegment set_frame_rate(int frame_rate) const;
 	
-	static std::vector<char> convert_to_stereo(const std::vector<char>& data) const;
-	static std::vector<char> convert_to_mono(const std::vector<char>& data) const;
-	static std::vector<char> merge_channels(const std::vector<std::vector<char>>& channel_data) const;
-	static std::vector<std::vector<char>> split_to_channels() const;
-	static AudioSegment set_channels(int channels) const;
+	std::vector<char> convert_to_stereo(const std::vector<char>& data) const;
+	std::vector<char> convert_to_mono(const std::vector<char>& data) const;
+	std::vector<char> merge_channels(const std::vector<std::vector<char>>& channel_data) const;
+	std::vector<std::vector<char>> split_to_channels() const;
+	AudioSegment set_channels(int channels) const;
 
 private:
     // Helper method to convert milliseconds to frame count

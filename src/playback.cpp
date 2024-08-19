@@ -4,8 +4,6 @@
 #include <fstream>      // For file operations
 #include <iostream>     // For error handling
 #include <vector>
-#include <portaudio.h>
-#include "utils.h"
 #include <map>
 #include "audio_segment.h"
 

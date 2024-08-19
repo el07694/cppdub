@@ -1,3 +1,7 @@
+#ifndef AUDIO_SEGMENT_H
+#include "audio_segment.cpp"
+#endif
+
 #ifndef UTILS_H
 #define UTILS_H
 
@@ -7,7 +11,6 @@
 #include <map>
 #include <nlohmann/json.hpp>
 #include <unordered_map>
-#include "audio_segment.h" // Include AudioSegment class
 #include <set>
 #include <functional>
 #include <optional>
@@ -15,6 +18,8 @@
 #include <memory>      // For std::unique_ptr
 #include <filesystem>
 
+namespace cppdub{
+    using namespace nlohmann;
 // Constants
 extern const std::map<int, int> FRAME_WIDTHS; // Updated declaration
 extern const std::map<int, std::string> ARRAY_TYPES;
@@ -33,9 +38,8 @@ std::string get_player_name();
 std::string get_prober_name();
 std::string fsdecode(const std::filesystem::path& path);
 std::string fsdecode(const std::string& path);
-nlohmann::json get_extra_info(const std::string& stderr);
+nlohmann::json get_extra_info(const std::string& stderr_);
 // Function to execute a command and capture its output
-std::string exec_command(const std::vector<std::string>& command_args, const std::string& stdin_data = "");
 std::string exec_command(const std::string& command);
 // Function to get media information as JSON
 nlohmann::json mediainfo_json(const std::string& file_path, int read_ahead_limit = -1);
@@ -75,5 +79,5 @@ AudioSegment ms_to_stereo(const AudioSegment& ms_segment);
 // New function declarations for handling audio segments
 std::vector<AudioSegment> make_chunks(const AudioSegment& audio_segment, size_t chunk_length_ms);
 
-
+}
 #endif // UTILS_H
