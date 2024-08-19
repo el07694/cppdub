@@ -1,9 +1,11 @@
+#ifndef UTILS_H
+#define UTILS_H
+
 #ifndef AUDIO_SEGMENT_H
 #include "audio_segment.cpp"
 #endif
 
-#ifndef UTILS_H
-#define UTILS_H
+
 
 #include <string>
 #include <vector>

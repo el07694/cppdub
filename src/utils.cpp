@@ -192,8 +192,8 @@ float ratio_to_db(float ratio, float val2 = 0.0f, bool using_amplitude = true) {
 }
 
 
-std::vector<AudioSegment> make_chunks(const AudioSegment& audio_segment, size_t chunk_length_ms) {
-    std::vector<AudioSegment> chunks;
+std::vector<cppdub::AudioSegment> make_chunks(const cppdub::AudioSegment& audio_segment, size_t chunk_length_ms) {
+    std::vector<cppdub::AudioSegment> chunks;
     size_t total_length = audio_segment.length_in_milliseconds();
 
     if (chunk_length_ms == 0) {
@@ -205,7 +205,12 @@ std::vector<AudioSegment> make_chunks(const AudioSegment& audio_segment, size_t 
     for (size_t i = 0; i < number_of_chunks; ++i) {
         size_t start = i * chunk_length_ms;
         size_t end = std::min(start + chunk_length_ms, total_length);
-        chunks.push_back(audio_segment(start, end));
+        
+        // Get the slice using the get_sample_slice method
+        uint32_t start_sample = static_cast<uint32_t>((static_cast<int>(range.start_time_ms) * frame_rate_) / 1000);
+        uint32_t end_sample = static_cast<uint32_t>((static_cast<int>(range.end_time_ms) * frame_rate_) / 1000);
+        std::vector<char> slice_123 = audio_segment.get_sample_slice(start_sample, end_sample);
+        chunks.push_back(cppdub::AudioSegment::_spawn(slice_123));
     }
 
     return chunks;

@@ -3,11 +3,6 @@
 #include <iterator>
 #include <stdexcept>
 
-// Helper function to convert dB to float
-double db_to_float(double db) {
-    return std::pow(10, db / 20);
-}
-
 std::vector<std::pair<int, int>> detect_silence(const AudioSegment& audio_segment, int min_silence_len = 1000, double silence_thresh = -16, int seek_step = 1) {
     int seg_len = audio_segment.length_in_milliseconds(); // Get length of the audio segment in milliseconds
 

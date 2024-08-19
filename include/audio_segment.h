@@ -155,6 +155,7 @@ public:
     static std::string ffmpeg();
     static void ffmpeg(const std::string& value);
     static const std::unordered_map<std::string, std::string>& default_codecs();
+	
 
 
     // Getter for raw audio data
@@ -349,6 +350,7 @@ WavData read_wav_audio(const std::vector<char>& data, const std::vector<WavSubCh
 void fix_wav_headers(std::vector<char>& data);
 double db_to_float(double db);
 int milliseconds_to_frames(int milliseconds, int frame_rate);
+std::vector<AudioSegment> _sync(const std::vector<AudioSegment>& segs);
 
 // Function to execute a command and capture output
 std::string exec_command(const std::vector<std::string>& command_args, const std::string& stdin_data = "");

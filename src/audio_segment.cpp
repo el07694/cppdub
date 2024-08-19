@@ -45,6 +45,8 @@
 #include <libavutil/avutil.h>
 #include <libavutil/log.h>
 
+#include <libswresample/swresample.h>
+
 namespace cppdub {
 	
 // Helper function to convert dB to linear float
@@ -934,6 +936,32 @@ AudioSegment AudioSegment::apply_gain(int db) const {
     return result;
 }
 
+// Sync function (similar to the Python _sync classmethod)
+std::vector<AudioSegment> _sync(const std::vector<AudioSegment>& segs) {
+	// Find the maximum channels, frame_rate, and sample_width
+	int channels = 0;
+	int frame_rate = 0;
+	int sample_width = 0;
+
+	for (const auto& seg : segs) {
+		if (seg.get_channels() > channels) channels = seg.get_channels();
+		if (seg.get_frame_rate() > frame_rate) frame_rate = seg.get_frame_rate();
+		if (seg.get_sample_width() > sample_width) sample_width = seg.get_sample_width();
+	}
+
+	// Return the modified segments
+	std::vector<AudioSegment> result;
+	for (const auto& seg : segs) {
+		result.push_back(
+			seg.set_channels(channels)
+			   .set_frame_rate(frame_rate)
+			   .set_sample_width(sample_width)
+		);
+	}
+
+	return result;
+}
+
 
 AudioSegment AudioSegment::overlay(const AudioSegment& seg, int position, bool loop, int times, int gain_during_overlay) const {
     if (loop) {
@@ -945,7 +973,10 @@ AudioSegment AudioSegment::overlay(const AudioSegment& seg, int position, bool l
     }
 
     // Sync segments (assume _sync method returns a pair of AudioSegments)
-    auto [seg1, seg2] = _sync(*this, seg);
+    const std::vector<AudioSegment>& seg_1_2 = { *this, seg };
+    const std::vector<AudioSegment>segs_synced = _sync(seg_1_2);
+    AudioSegment seg1 = segs_synced[0];
+    AudioSegment seg2 = segs_synced[1];
 
     int sample_width = seg1.sample_width_;
     std::vector<char> data1 = seg1.raw_data();
@@ -970,7 +1001,7 @@ AudioSegment AudioSegment::overlay(const AudioSegment& seg, int position, bool l
 
         if (gain_during_overlay != 0) {
             // Apply gain (convert dB to float factor)
-            float gain_factor = db_to_float(gain_during_overlay);
+            float gain_factor = cppdub::db_to_float(static_cast<double>( gain_during_overlay));
             std::vector<char> seg1_adjusted_gain = mul(seg1_overlaid, sample_width, gain_factor);
             std::vector<char> overlay_result = add(seg1_adjusted_gain, data2, sample_width);
             output_data.insert(output_data.end(), overlay_result.begin(), overlay_result.end());
@@ -992,41 +1023,50 @@ AudioSegment AudioSegment::overlay(const AudioSegment& seg, int position, bool l
 // Implementation of the append method
 AudioSegment AudioSegment::append(const AudioSegment& seg, int crossfade) const {
     // Synchronize the audio segments to ensure they have the same sample width and frame rate
-    AudioSegment seg1, seg2;
-    std::tie(seg1, seg2) = AudioSegment::_sync(*this, seg);
+    const std::vector<AudioSegment> seg_1_2 = { *this, seg };
+    const std::vector<AudioSegment> segs_synced = _sync(seg_1_2);
+    AudioSegment seg1 = segs_synced[0];
+    AudioSegment seg2 = segs_synced[1];
+
+    // Convert crossfade from milliseconds to frames
+    int crossfade_frames = milliseconds_to_frames(crossfade, frame_rate_);
+
+    // Convert crossfade frames to milliseconds for slice method
+    int crossfade_ms = static_cast<int>(crossfade_frames / frame_rate_ * 1000.0);
 
     // Check crossfade validity
-    int crossfade_frames = milliseconds_to_frames(crossfade, frame_rate_);
     if (crossfade == 0) {
         // No crossfade, just concatenate
         std::vector<char> combined_data = seg1.raw_data();
         combined_data.insert(combined_data.end(), seg2.raw_data().begin(), seg2.raw_data().end());
         return seg1._spawn(combined_data);
     }
-    else if (crossfade_frames > seg1.frame_count()) {
+    else if (crossfade_ms > static_cast<int>(seg1.frame_count() / frame_rate_ * 1000.0)) {
         throw std::invalid_argument("Crossfade is longer than the original AudioSegment.");
     }
-    else if (crossfade_frames > seg2.frame_count()) {
+    else if (crossfade_ms > static_cast<int>(seg2.frame_count() / frame_rate_ * 1000.0)) {
         throw std::invalid_argument("Crossfade is longer than the appended AudioSegment.");
     }
 
     // Create crossfade segments
-    auto fade_out_data = seg1.slice(-crossfade_frames, crossfade_frames).fade(-120.0);
-    auto fade_in_data = seg2.slice(0, crossfade_frames).fade(-120.0);
+    auto fade_out_data = seg1.slice(seg1.frame_count() - crossfade_ms, seg1.frame_count()).fade_out(crossfade_frames);
+    auto fade_in_data = seg2.slice(0, crossfade_ms).fade_in(crossfade_frames);
 
     // Concatenate segments
     std::vector<char> combined_data;
     combined_data.reserve(seg1.raw_data().size() + fade_out_data.raw_data().size() + seg2.raw_data().size());
 
     // Append the first segment excluding the crossfade portion
-    combined_data.insert(combined_data.end(), seg1.slice(0, -crossfade_frames).raw_data().begin(), seg1.slice(0, -crossfade_frames).raw_data().end());
+    combined_data.insert(combined_data.end(), seg1.slice(0, seg1.frame_count() - crossfade_ms).raw_data().begin(), seg1.slice(0, seg1.frame_count() - crossfade_ms).raw_data().end());
     // Append the crossfade portion
     combined_data.insert(combined_data.end(), fade_out_data.raw_data().begin(), fade_out_data.raw_data().end());
     // Append the second segment excluding the crossfade portion
-    combined_data.insert(combined_data.end(), seg2.slice(crossfade_frames).raw_data().begin(), seg2.slice(crossfade_frames).raw_data().end());
+    combined_data.insert(combined_data.end(), seg2.slice(crossfade_ms, seg2.frame_count()).raw_data().begin(), seg2.slice(crossfade_ms, seg2.frame_count()).raw_data().end());
 
     return seg1._spawn(combined_data);
 }
+
+
 
 // Spawn a new AudioSegment with the given data and optional metadata overrides
 AudioSegment AudioSegment::_spawn(const std::vector<char>& data) const {
@@ -1047,19 +1087,19 @@ AudioSegment AudioSegment::_spawn(const std::vector<char>& data) const {
 // Implementation of convert_audio_data using libavcodec or other audio library
 std::vector<char> AudioSegment::convert_audio_data(const std::vector<char>& data, int src_rate, int dest_rate) const {
     // Set up libavformat structures
-    AVCodecContext *codec_ctx = avcodec_alloc_context3(nullptr);
-    AVFrame *frame = av_frame_alloc();
+    AVCodecContext* codec_ctx = avcodec_alloc_context3(nullptr);
+    AVFrame* frame = av_frame_alloc();
     AVPacket packet;
     av_init_packet(&packet);
 
     // Configure codec context (e.g., sample rate, channels)
     codec_ctx->sample_rate = src_rate;
-    codec_ctx->channels = channels_;
+    codec_ctx->channels = channels_;  // Ensure 'channels_' is correctly defined and used
     codec_ctx->sample_fmt = AV_SAMPLE_FMT_S16; // Example format
-    codec_ctx->channel_layout = av_get_default_channel_layout(channels_);
+    codec_ctx->channel_layout = av_get_default_channel_layout(codec_ctx->channels);
 
     // Open codec context
-    AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_PCM_S16LE);
+    AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_PCM_S16LE);
     avcodec_open2(codec_ctx, codec, nullptr);
 
     // Decode input data
@@ -1069,7 +1109,11 @@ std::vector<char> AudioSegment::convert_audio_data(const std::vector<char>& data
     avcodec_receive_frame(codec_ctx, frame);
 
     // Set up conversion context
-    SwrContext *swr_ctx = swr_alloc();
+    SwrContext* swr_ctx = swr_alloc();
+    if (!swr_ctx) {
+        // Handle error
+    }
+
     av_opt_set_int(swr_ctx, "in_channel_layout", codec_ctx->channel_layout, 0);
     av_opt_set_int(swr_ctx, "out_channel_layout", codec_ctx->channel_layout, 0);
     av_opt_set_int(swr_ctx, "in_sample_rate", src_rate, 0);
@@ -1085,7 +1129,7 @@ std::vector<char> AudioSegment::convert_audio_data(const std::vector<char>& data
     int out_buffer_size = av_samples_get_buffer_size(nullptr, codec_ctx->channels, out_samples, codec_ctx->sample_fmt, 1);
     std::vector<uint8_t> out_buffer(out_buffer_size);
 
-    swr_convert(swr_ctx, &out_buffer.data(), out_samples, (const uint8_t **)frame->data, in_samples);
+    swr_convert(swr_ctx, &out_buffer.data(), out_samples, (const uint8_t**)frame->data, in_samples);
 
     converted_data.assign(out_buffer.begin(), out_buffer.end());
 
