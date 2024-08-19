@@ -14,12 +14,6 @@
 
 namespace cppdub {
 
-// Error class implementation
-error::error(const char* message) : msg_(message) {}
-error::error(const std::string& message) : msg_(message) {}
-error::~error() noexcept {}
-const char* error::what() const noexcept { return msg_.c_str(); }
-
 // Function implementations
 void _check_size(int size) {
     if (size != 1 && size != 2 && size != 4) {
@@ -60,7 +54,7 @@ std::string _struct_format(int size, bool signed_) {
     }
 }
 
-int _get_sample(const std::vector<char>& cp, int size, int index, bool signed_=true) {
+int _get_sample(const std::vector<char>& cp, int size, int index, bool signed_) {
     // Determine the format and size
     std::string fmt = _struct_format(size, signed_);
     int start = index * size;
@@ -112,7 +106,7 @@ void _put_sample(std::vector<char>& result, int size, int index, int sample) {
     }
 }
 
-int _get_maxval(int size, bool signed_=true) {
+int _get_maxval(int size, bool signed_) {
     if (size == 1) {
         return signed_ ? 0x7F : 0xFF;
     } else if (size == 2) {
@@ -123,7 +117,7 @@ int _get_maxval(int size, bool signed_=true) {
     throw error("Unsupported size");
 }
 
-int _get_minval(int size, bool signed_=true) {
+int _get_minval(int size, bool signed_) {
     if (!signed_) {
         return 0;
     } else if (size == 1) {
@@ -136,7 +130,7 @@ int _get_minval(int size, bool signed_=true) {
     throw error("Unsupported size");
 }
 
-std::function<int(int)> _get_clipfn(int size, bool signed_ = true) {
+std::function<int(int)> _get_clipfn(int size, bool signed_ ) {
     int maxval = _get_maxval(size, signed_);
     int minval = _get_minval(size, signed_);
     return [maxval, minval](int sample) -> int {
@@ -144,7 +138,7 @@ std::function<int(int)> _get_clipfn(int size, bool signed_ = true) {
     };
 }
 
-int _overflow(int sample, int size, bool signed_ = true) {
+int _overflow(int sample, int size, bool signed_) {
     int maxval = _get_maxval(size, signed_);
     int minval = _get_minval(size, signed_);
 

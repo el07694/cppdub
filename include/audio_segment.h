@@ -25,6 +25,7 @@
 #include <libavutil/log.h>
 #include <filesystem>
 #include <limits>
+#include "exceptions.h"
 
 
 #include "cppaudioop.h"
@@ -35,13 +36,14 @@
 struct AudioSegmentHash;
 
 namespace cppdub {
-
+/*
 // Exception class
 class CouldntDecodeError : public std::runtime_error {
 public:
     explicit CouldntDecodeError(const std::string& message)
         : std::runtime_error(message) {}
 };
+*/
 
 // Struct to represent a range
 struct Range {
@@ -353,7 +355,7 @@ int milliseconds_to_frames(int milliseconds, int frame_rate);
 std::vector<AudioSegment> _sync(const std::vector<AudioSegment>& segs);
 
 // Function to execute a command and capture output
-std::string exec_command(const std::vector<std::string>& command_args, const std::string& stdin_data = "");
+std::string exec_command(const std::vector<std::string>& command_args, const std::string& stdin_data);
 
 // Function to handle temporary file creation and cleanup
 std::filesystem::path create_temp_file(const std::string& data);
@@ -368,6 +370,8 @@ AudioSegment from_file_using_temporary_files(const std::string& file_path, const
 struct AudioSegmentHash {
     std::size_t operator()(const AudioSegment& segment) const;
 };
+
+const std::map<std::string, int>& get_empty_map();
 
 } // namespace cppdub
 

@@ -6,7 +6,7 @@
 #include <array>
 
 void apply_mono_filter_to_each_channel(AudioSegment& seg, std::function<AudioSegment(const AudioSegment&)> filter_fn) {
-    int n_channels = static_cast<int>(seg.channels_);
+    int n_channels = static_cast<int>(seg.get_channels());
     
     // Split the segment into mono channels
     std::vector<AudioSegment> channel_segs = seg.split_to_mono();

@@ -9,8 +9,6 @@
 #include <functional>
 
 
-// Other declarations or function prototypes specific to effects
-class AudioSegment;  // Forward declaration of AudioSegment
 
 void apply_mono_filter_to_each_channel(AudioSegment& seg, std::function<AudioSegment(const AudioSegment&)> filter_fn);
 

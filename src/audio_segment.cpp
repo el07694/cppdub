@@ -14,7 +14,6 @@
 #include <array>
 #include <type_traits>
 #include <functional>
-
 #include <vector>
 #include <stdexcept>
 #include <iterator> // For std::back_inserter
@@ -543,7 +542,7 @@ std::vector<uint8_t> AudioSegment::get_frame(int index) const {
     return std::vector<uint8_t>(this->raw_data().begin() + frame_start, this->raw_data().begin() + frame_end);
 }
 
-double AudioSegment::frame_count(int ms = -1) const {
+double AudioSegment::frame_count(int ms) const {
     if (ms >= 0) {
         return static_cast<double>(ms * (static_cast<double>(this->frame_rate_) / 1000.0));
     } else {
@@ -675,10 +674,6 @@ size_t AudioSegment::length_in_milliseconds() const {
     return static_cast<size_t>(duration_in_seconds * 1000);
 }
 
-// Convert time (in milliseconds) to sample index
-uint32_t AudioSegment::time_to_sample_index(int time_in_ms) {
-    return (time_in_ms * frame_rate_) / 1000;
-}
 
 // New method to get a slice of samples
 std::vector<char> AudioSegment::get_sample_slice(uint32_t start_sample, uint32_t end_sample) const {
@@ -1130,15 +1125,17 @@ std::vector<char> AudioSegment::convert_audio_data(const std::vector<char>& data
     swr_init(swr_ctx);
 
     // Convert audio
-    std::vector<char> converted_data;
     int64_t in_samples = frame->nb_samples;
     int out_samples = av_rescale_rnd(swr_get_delay(swr_ctx, src_rate) + in_samples, dest_rate, src_rate, AV_ROUND_UP);
     int out_buffer_size = av_samples_get_buffer_size(nullptr, codec_ctx->ch_layout.nb_channels, out_samples, codec_ctx->sample_fmt, 1);
     std::vector<uint8_t> out_buffer(out_buffer_size);
 
-    swr_convert(swr_ctx, &out_buffer.data(), out_samples, (const uint8_t**)frame->data, in_samples);
+    // Note: Use a pointer to the buffer for swr_convert
+    uint8_t* out_buffer_ptr = out_buffer.data();
+    swr_convert(swr_ctx, &out_buffer_ptr, out_samples, (const uint8_t**)frame->data, in_samples);
 
-    converted_data.assign(out_buffer.begin(), out_buffer.end());
+    // Convert output to std::vector<char>
+    std::vector<char> converted_data(out_buffer.begin(), out_buffer.end());
 
     // Cleanup
     av_frame_free(&frame);
@@ -1264,7 +1261,7 @@ AudioSegment AudioSegment::set_channels(int channels) const {
     std::unordered_map<std::string, int> overrides;
     overrides["channels"] = channels;
     overrides["frame_width"] = frame_width;
-	converted_segment = _spawn(converted_data);
+	AudioSegment converted_segment = _spawn(converted_data);
 	
 	// Update with overrides
     if (overrides.find("frame_width") != overrides.end()) {
@@ -1293,7 +1290,7 @@ AudioSegment AudioSegment::set_sample_width(int sample_width) const {
         {"sample_width", sample_width},
         {"frame_width", new_frame_width}
     };	
-   	converted_segment = _spawn(new_data);
+   	AudioSegment converted_segment = _spawn(new_data);
 	
 	// Update with overrides
     if (overrides.find("frame_width") != overrides.end()) {
@@ -1436,7 +1433,8 @@ std::vector<WavSubChunk> extract_wav_headers(const std::vector<char>& data) {
         // Read subchunk size
         uint32_t subchunk_size = 0;
         std::memcpy(&subchunk_size, data.data() + pos + 4, sizeof(subchunk_size));
-        subchunk_size = __builtin_bswap32(subchunk_size);  // Convert from little-endian to host byte order
+        subchunk_size = _byteswap_ulong(subchunk_size);  // Convert from little-endian to host byte order
+
 
         subchunks.emplace_back(subchunk_id, pos, subchunk_size);
 
@@ -1474,7 +1472,8 @@ WavData read_wav_audio(const std::vector<char>& data, const std::vector<WavSubCh
     // Read audio format
     uint16_t audio_format = 0;
     std::memcpy(&audio_format, data.data() + pos, sizeof(audio_format));
-    audio_format = __builtin_bswap16(audio_format);  // Convert from little-endian to host byte order
+    audio_format = _byteswap_ushort(audio_format);  // Convert from little-endian to host byte order
+
 
     if (audio_format != 1 && audio_format != 0xFFFE) {
         throw CouldntDecodeError("Unknown audio format 0x" + std::to_string(audio_format) + " in wav data");
@@ -1483,17 +1482,18 @@ WavData read_wav_audio(const std::vector<char>& data, const std::vector<WavSubCh
     // Read channels
     uint16_t channels = 0;
     std::memcpy(&channels, data.data() + pos + 2, sizeof(channels));
-    channels = __builtin_bswap16(channels);  // Convert from little-endian to host byte order
+    channels = _byteswap_ushort(channels);  // Convert from little-endian to host byte order
 
     // Read sample rate
     uint32_t sample_rate = 0;
     std::memcpy(&sample_rate, data.data() + pos + 4, sizeof(sample_rate));
-    sample_rate = __builtin_bswap32(sample_rate);  // Convert from little-endian to host byte order
+    sample_rate = _byteswap_ulong(sample_rate);  // Convert from little-endian to host byte order
+
 
     // Read bits per sample
     uint16_t bits_per_sample = 0;
     std::memcpy(&bits_per_sample, data.data() + pos + 14, sizeof(bits_per_sample));
-    bits_per_sample = __builtin_bswap16(bits_per_sample);  // Convert from little-endian to host byte order
+    bits_per_sample = _byteswap_ushort(bits_per_sample);  // Convert from little-endian to host byte order
 
     // Find 'data' subchunk
     auto data_hdr_iter = std::find_if(hdrs.rbegin(), hdrs.rend(), [](const WavSubChunk& subchunk) {
@@ -1546,7 +1546,7 @@ std::string exec_command(const std::vector<std::string>& command_args, const std
 
     std::array<char, 128> buffer;
     std::string result;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
+    std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(command.c_str(), "r"), _pclose);
 
     if (!pipe) throw std::runtime_error("popen() failed!");
 
@@ -1559,20 +1559,11 @@ std::string exec_command(const std::vector<std::string>& command_args, const std
 
 // Function to handle temporary file creation and cleanup
 std::filesystem::path create_temp_file(const std::string& data) {
-    // Create a temporary file path with a unique name
-    std::filesystem::path temp_path = std::filesystem::temp_directory_path() / "tempfile_XXXXXX.tmp";
-    
-    // Convert to std::string for use with mkstemp
-    std::string temp_path_string = temp_path.string();
+    // Generate a unique temporary file name
+    std::string temp_filename = std::tmpnam(nullptr);
 
-    // Generate a unique file path
-    int fd = mkstemp(temp_path_string.data());
-    if (fd == -1) {
-        throw std::runtime_error("Unable to create temporary file");
-    }
-
-    // Update the path with the actual unique file name
-    temp_path = std::filesystem::path(temp_path_string);
+    // Create a path object from the generated filename
+    std::filesystem::path temp_path = temp_filename;
 
     // Use RAII to open the file and ensure it closes properly
     std::ofstream temp_file(temp_path, std::ios::binary);
@@ -1588,6 +1579,11 @@ std::filesystem::path create_temp_file(const std::string& data) {
 
     // No need to explicitly close; RAII will handle it
     return temp_path;
+}
+
+const std::map<std::string, int>& get_empty_map() {
+    static const std::map<std::string, int> empty_map; // Static to ensure it persists beyond function scope
+    return empty_map;
 }
 
 AudioSegment from_file_using_temporary_files(const std::string& file_path, const std::string& format = "", const std::string& codec = "", 
@@ -1637,7 +1633,7 @@ AudioSegment from_file_using_temporary_files(const std::string& file_path, const
     std::string command_output = exec_command(conversion_command);
 
     // Load the output audio segment
-    AudioSegment audio_segment = AudioSegment::from_wav(temp_output_path.string());
+    AudioSegment audio_segment = AudioSegment::from_wav(temp_output_path.string(), get_empty_map());
 
     // Clean up temporary files
     std::filesystem::remove(temp_input_path);
