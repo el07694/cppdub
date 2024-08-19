@@ -40,13 +40,19 @@
 #include <algorithm> // For std::min and std::max
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
-//#include <libavutil/samplefmt.h>
-//#include <libavutil/channel_layout.h>
-//#include <libavutil/avutil.h>
-//#include <libavutil/log.h>
-//
-//
-//#include <libswresample/swresample.h>
+#include <libavutil/samplefmt.h>
+#include <libavutil/channel_layout.h>
+#include <libavutil/avutil.h>
+#include <libavutil/log.h>
+
+
+#include <libswresample/swresample.h>
+
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libswresample/swresample.h>
+#include <libavutil/opt.h>
+#include <libavutil/channel_layout.h>
 
 namespace cppdub {
 	
@@ -1097,10 +1103,10 @@ std::vector<char> AudioSegment::convert_audio_data(const std::vector<char>& data
     
     codec_ctx->ch_layout.nb_channels = this->get_channels();  // Ensure 'channels_' is correctly defined and used
     codec_ctx->sample_fmt = AV_SAMPLE_FMT_S16; // Example format
-	codec_ctx->ch_layout = av_get_default_ch_layout(codec_ctx->ch_layout.nb_channels);
+	//codec_ctx->ch_layout = av_channel_layout_default(codec_ctx->ch_layout.nb_channels);
 
     // Open codec context
-    AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_PCM_S16LE);
+    const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_PCM_S16LE);
     avcodec_open2(codec_ctx, codec, nullptr);
 
     // Decode input data
@@ -1115,8 +1121,8 @@ std::vector<char> AudioSegment::convert_audio_data(const std::vector<char>& data
         // Handle error
     }
 
-    av_opt_set_int(swr_ctx, "in_channel_layout", codec_ctx->channel_layout, 0);
-    av_opt_set_int(swr_ctx, "out_channel_layout", codec_ctx->channel_layout, 0);
+    av_opt_set_int(swr_ctx, "in_channels", codec_ctx->ch_layout.nb_channels, 0);
+    av_opt_set_int(swr_ctx, "out_channels", codec_ctx->ch_layout.nb_channels, 0);
     av_opt_set_int(swr_ctx, "in_sample_rate", src_rate, 0);
     av_opt_set_int(swr_ctx, "out_sample_rate", dest_rate, 0);
     av_opt_set_sample_fmt(swr_ctx, "in_sample_fmt", codec_ctx->sample_fmt, 0);
@@ -1127,7 +1133,7 @@ std::vector<char> AudioSegment::convert_audio_data(const std::vector<char>& data
     std::vector<char> converted_data;
     int64_t in_samples = frame->nb_samples;
     int out_samples = av_rescale_rnd(swr_get_delay(swr_ctx, src_rate) + in_samples, dest_rate, src_rate, AV_ROUND_UP);
-    int out_buffer_size = av_samples_get_buffer_size(nullptr, codec_ctx->channels, out_samples, codec_ctx->sample_fmt, 1);
+    int out_buffer_size = av_samples_get_buffer_size(nullptr, codec_ctx->ch_layout.nb_channels, out_samples, codec_ctx->sample_fmt, 1);
     std::vector<uint8_t> out_buffer(out_buffer_size);
 
     swr_convert(swr_ctx, &out_buffer.data(), out_samples, (const uint8_t**)frame->data, in_samples);
