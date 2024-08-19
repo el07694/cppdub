@@ -40,12 +40,13 @@
 #include <algorithm> // For std::min and std::max
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
-#include <libavutil/samplefmt.h>
-#include <libavutil/channel_layout.h>
-#include <libavutil/avutil.h>
-#include <libavutil/log.h>
-
-#include <libswresample/swresample.h>
+//#include <libavutil/samplefmt.h>
+//#include <libavutil/channel_layout.h>
+//#include <libavutil/avutil.h>
+//#include <libavutil/log.h>
+//
+//
+//#include <libswresample/swresample.h>
 
 namespace cppdub {
 	
@@ -1093,10 +1094,10 @@ std::vector<char> AudioSegment::convert_audio_data(const std::vector<char>& data
     av_init_packet(&packet);
 
     // Configure codec context (e.g., sample rate, channels)
-    codec_ctx->sample_rate = src_rate;
-    codec_ctx->channels = this->get_channels();  // Ensure 'channels_' is correctly defined and used
+    
+    codec_ctx->ch_layout.nb_channels = this->get_channels();  // Ensure 'channels_' is correctly defined and used
     codec_ctx->sample_fmt = AV_SAMPLE_FMT_S16; // Example format
-    codec_ctx->channel_layout = av_get_default_channel_layout(codec_ctx->channels);
+    //codec_ctx->ch_layout = av_get_default_ch_layout(codec_ctx->ch_layout.nb_channels); <- ERROR
 
     // Open codec context
     AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_PCM_S16LE);
