@@ -10,7 +10,6 @@
 #include "utils.h"
 
 namespace cppdub{
-float db_to_float(float db, bool using_amplitude);
 
 class SignalGenerator {
 public:

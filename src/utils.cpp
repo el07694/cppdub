@@ -1,3 +1,5 @@
+#ifndef UTILS_CPP
+#define UTILS_CPP
 #include "utils.h"
 #include <iostream>
 #include <fstream>
@@ -43,8 +45,8 @@ const std::map<int, int> FRAME_WIDTHS = {
 };
 
 const std::map<int, std::string> ARRAY_TYPES = {
-    {8, "b"}, 
-    {16, "h"}, 
+    {8, "b"},
+    {16, "h"},
     {32, "i"}
 };
 
@@ -56,16 +58,16 @@ const std::map<int, std::pair<int, int>> ARRAY_RANGES = {
 
 // Functions
 int get_frame_width(int bit_depth) {
-    auto it = FRAME_WIDTHS.find(bit_depth);
-    if (it != FRAME_WIDTHS.end()) {
+    auto it = cppdub::FRAME_WIDTHS.find(bit_depth);
+    if (it != cppdub::FRAME_WIDTHS.end()) {
         return it->second;
     }
     throw std::invalid_argument("Unsupported bit depth");
 }
 
 std::string get_array_type(int bit_depth, bool signed_type) {
-    auto it = ARRAY_TYPES.find(bit_depth);
-    if (it != ARRAY_TYPES.end()) {
+    auto it = cppdub::ARRAY_TYPES.find(bit_depth);
+    if (it != cppdub::ARRAY_TYPES.end()) {
         std::string type = it->second;
         if (!signed_type) {
             type = static_cast<char>(std::toupper(type[0])) + type.substr(1);  // Convert first letter to uppercase
@@ -76,8 +78,8 @@ std::string get_array_type(int bit_depth, bool signed_type) {
 }
 
 std::pair<int, int> get_min_max_value(int bit_depth) {
-    auto it = ARRAY_RANGES.find(bit_depth);
-    if (it != ARRAY_RANGES.end()) {
+    auto it = cppdub::ARRAY_RANGES.find(bit_depth);
+    if (it != cppdub::ARRAY_RANGES.end()) {
         return it->second;
     }
     throw std::invalid_argument("Unsupported bit depth");
@@ -639,3 +641,5 @@ AudioSegment ms_to_stereo(const AudioSegment& ms_segment) {
     return AudioSegment::from_mono_audiosegments(mono_segments);
 }
 }
+
+#endif // UTILS_CPP

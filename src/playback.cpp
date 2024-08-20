@@ -9,7 +9,7 @@
 
 namespace cppdub {
 
-void _play_with_ffplay(const AudioSegment& audio_segment) {
+void _play_with_ffplay(AudioSegment& audio_segment) {
     // Get the player name (e.g., "ffplay")
     std::string PLAYER = get_player_name();
 
@@ -27,7 +27,7 @@ void _play_with_ffplay(const AudioSegment& audio_segment) {
     const std::string cover;
 
     // Attempt to export the audio segment to the temporary file
-    std::ifstream out_file = audio_segment.export(temp_file_name, format, codec, bitrate, parameters, tags, id3v2_version, cover);
+    std::ofstream out_file = audio_segment.export_segment(static_cast<std::string>(temp_file_name), format, codec, bitrate, parameters, tags, id3v2_version, cover);
 
 
     // Construct the ffplay command
@@ -44,7 +44,7 @@ void _play_with_ffplay(const AudioSegment& audio_segment) {
 }
 
 // The primary function for playing audio using PortAudio
-bool _play_with_portaudio_safe(const AudioSegment& audio_segment) {
+bool _play_with_portaudio_safe(AudioSegment& audio_segment) {
     PaStream* stream;
     PaError err;
 
@@ -58,9 +58,9 @@ bool _play_with_portaudio_safe(const AudioSegment& audio_segment) {
     // Open the audio stream
     err = Pa_OpenDefaultStream(&stream,
                                0, // No input channels
-                               audio_segment.channels_, // Output channels
+                               audio_segment.get_channels(), // Output channels
                                paInt16, // Assuming 16-bit audio; adapt based on `audio_segment.sample_width`
-                               audio_segment.frame_rate_, // Frame rate
+                               audio_segment.get_frame_rate(), // Frame rate
                                256, // Frames per buffer; choose a size that works for you
                                NULL, // No callback, we'll use blocking API
                                NULL); // No callback data
@@ -102,7 +102,7 @@ bool _play_with_portaudio_safe(const AudioSegment& audio_segment) {
             // Write the chunk to the PortAudio stream
             const int16_t* raw_data = reinterpret_cast<const int16_t*>(chunk.raw_data().data());
             size_t total_samples = chunk.raw_data().size() / sizeof(int16_t); // Total number of samples
-            unsigned long frames = total_samples / audio_segment.channels_;   // Number of frames
+            unsigned long frames = total_samples / audio_segment.get_channels();   // Number of frames
 
             err = Pa_WriteStream(stream, raw_data, frames);
             if (err != paNoError) {
@@ -136,7 +136,7 @@ bool _play_with_portaudio_safe(const AudioSegment& audio_segment) {
     return true;  // Successfully played the audio
 }
 
-void play(const AudioSegment& audio_segment) {
+void play(AudioSegment& audio_segment) {
     // Try to play with PortAudio first
     bool played_with_portaudio = _play_with_portaudio_safe(audio_segment);
 

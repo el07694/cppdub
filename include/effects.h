@@ -2,7 +2,7 @@
 
 #ifndef EFFECTS_H
 #define EFFECTS_H
-
+#include "utils.h"
 #include "audio_segment.h" // For AudioSegment class
 #include <cmath>           // For math functionalities
 #include <vector>          // For dynamic arrays (equivalent to Python's list)

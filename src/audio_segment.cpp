@@ -446,7 +446,7 @@ AudioSegment AudioSegment::_from_safe_wav(const std::string& file_path) {
     return AudioSegment(data);
 }
 
-std::ofstream AudioSegment::export_segment(const std::string& out_f, const std::string& format,
+std::ofstream AudioSegment::export_segment(std::string& out_f, const std::string& format,
                                    const std::string& codec, const std::string& bitrate,
                                    const std::vector<std::string>& parameters, const std::map<std::string, std::string>& tags,
                                    const std::string& id3v2_version, const std::string& cover) {

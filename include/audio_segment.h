@@ -111,7 +111,7 @@ public:
     static AudioSegment _from_safe_wav(const std::string& file_path);
 
     // Method to export an AudioSegment to a file with given options
-    std::ofstream export_segment(const std::string& out_f, const std::string& format, const std::string& codec, const std::string& bitrate, const std::vector<std::string>& parameters, const std::map<std::string, std::string>& tags, const std::string& id3v2_version, const std::string& cover);
+    std::ofstream export_segment(std::string& out_f, const std::string& format, const std::string& codec, const std::string& bitrate, const std::vector<std::string>& parameters, const std::map<std::string, std::string>& tags, const std::string& id3v2_version, const std::string& cover);
 
     // Method to get a specific frame from the AudioSegment
     std::vector<uint8_t> get_frame(int index) const;

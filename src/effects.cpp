@@ -1,9 +1,9 @@
 #include "effects.h"
-#include "utils.h"
+
 #include <vector>
 #include <cmath>
 #include <array>
-
+using namespace cppdub;
 namespace cppdub {
 
 
@@ -150,7 +150,7 @@ AudioSegment compress_dynamic_range(const AudioSegment& seg, double threshold, d
 
     auto db_over_threshold = [&](double rms) {
         if (rms == 0) return 0.0;
-        double db = static_cast<double>(ratio_to_db(rms / thresh_rms));
+        double db = static_cast<double>(cppdub::ratio_to_db(static_cast<float>(rms / thresh_rms), 0.0f, true));
         return std::max(db, 0.0);
     };
 
@@ -279,7 +279,8 @@ AudioSegment high_pass_filter(const AudioSegment& seg, double cutoff) {
     }
     
     // Get min and max value for the sample width
-    auto [minval, maxval] = get_min_max_value(seg.get_sample_width() * 8);
+    int minval, maxval;
+    std::tie(minval, maxval) = get_min_max_value(seg.get_sample_width() * 8);
 
     // Apply the high-pass filter
     std::vector<double> last_val(num_channels, 0.0);
@@ -319,13 +320,13 @@ AudioSegment pan(const AudioSegment& seg, double pan_amount) {
         throw std::invalid_argument("pan_amount should be between -1.0 (100% left) and +1.0 (100% right)");
     }
 
-    double max_boost_db = static_cast<double>(ratio_to_db(2.0));
+    double max_boost_db = static_cast<double>(cppdub::ratio_to_db(2.0, 0.0f, true));
     double boost_db = std::abs(pan_amount) * max_boost_db;
 
     double boost_factor = db_to_float(boost_db);
     double reduce_factor = db_to_float(max_boost_db) - boost_factor;
 
-    double reduce_db = ratio_to_db(reduce_factor);
+    double reduce_db = static_cast<double>(cppdub::ratio_to_db(static_cast<float>(reduce_factor), 0.0f, true));
 
     // Cut boost in half (max boost == 3dB)
     boost_db = boost_db / 2.0;

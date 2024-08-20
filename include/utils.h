@@ -21,13 +21,10 @@
 #include <cstdio>      // For std::FILE
 #include <memory>      // For std::unique_ptr
 #include <filesystem>
-using namespace nlohmann;
+
 namespace cppdub{
-    
-// Constants
-extern const std::map<int, int> FRAME_WIDTHS; // Updated declaration
-extern const std::map<int, std::string> ARRAY_TYPES;
-extern const std::map<int, std::pair<int, int>> ARRAY_RANGES;
+using namespace nlohmann;
+
 
 // Functions
 int get_frame_width(int bit_depth);
