@@ -1,69 +1,65 @@
+#cmake command: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
 cmake_minimum_required(VERSION 3.10)
-project(CppDub)
 
-# C++ standard
+# Define the project name and version
+project(cppdub VERSION 1.0 LANGUAGES CXX)
+
+# Set the C++ standard
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Include directories for headers
-include_directories(cpp/include)
-include_directories(lib/json-develop/include)
-include_directories(lib/ffmpeg-7.0.2/include)
-include_directories(lib/portaudio/include)
+# Define the include directories
+include_directories(
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/lib/ffmpeg/include
+    ${PROJECT_SOURCE_DIR}/lib/portaudio/include
+	${PROJECT_SOURCE_DIR}/lib/json-develop/include
+)
 
-# Source files
+# Define the source files
 set(SOURCES
-    cpp/src/audio_segment.cpp
-    cpp/src/cppaudioop.cpp
-    cpp/src/effects.cpp
-    cpp/src/exceptions.cpp
-    cpp/src/generators.cpp
-    cpp/src/logging_utils.cpp
-    cpp/src/playback.cpp
-    cpp/src/silence.cpp
-    cpp/src/utils.cpp
+    src/audio_segment.cpp
+    src/cppaudioop.cpp
+    src/effects.cpp
+    src/exceptions.cpp
+    src/generators.cpp
+    src/logging_utils.cpp
+    src/playback.cpp
+    src/silence.cpp
+    src/utils.cpp
 )
 
-# Header files (optional, just for clarity, not mandatory to list them)
-set(HEADERS
-    cpp/include/audio_segment.h
-    cpp/include/cppaudioop.h
-    cpp/include/effects.h
-    cpp/include/exceptions.h
-    cpp/include/generators.h
-    cpp/include/logging_utils.h
-    cpp/include/playback.h
-    cpp/include/silence.h
-    cpp/include/utils.h
+# Create the library
+add_library(cppdub STATIC ${SOURCES})
+
+# Define the libraries to link against
+find_library(FFMPEG_LIBRARIES
+    NAMES avcodec avdevice avfilter avformat avutil postproc swresample swscale
+    PATHS ${PROJECT_SOURCE_DIR}/lib/ffmpeg/lib
 )
 
-# Add executable or library (uncomment one of them based on your project)
-# add_executable(CppDub ${SOURCES} ${HEADERS})
-add_library(CppDub STATIC ${SOURCES} ${HEADERS})
-
-# Link FFmpeg libraries (adjust the names as necessary based on your build)
-find_library(FFMPEG_AVCODEC avcodec PATHS lib/ffmpeg-7.0.2/lib)
-find_library(FFMPEG_AVFORMAT avformat PATHS lib/ffmpeg-7.0.2/lib)
-find_library(FFMPEG_AVUTIL avutil PATHS lib/ffmpeg-7.0.2/lib)
-
-# Link PortAudio library
-find_library(PORTAUDIO_LIB portaudio PATHS lib/portaudio/lib)
-
-# Link JSON if it is built as a library (some versions are header-only)
-# You may skip this if json-develop is header-only
-# find_library(JSON_LIB nlohmann_json PATHS lib/json-develop/lib)
-
-# Add libraries to the project
-target_link_libraries(CppDub ${FFMPEG_AVCODEC} ${FFMPEG_AVFORMAT} ${FFMPEG_AVUTIL} ${PORTAUDIO_LIB})
-
-# Installation setup
-install(TARGETS CppDub
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
+find_library(PORTAUDIO_LIBRARIES
+    NAMES portaudio
+    PATHS ${PROJECT_SOURCE_DIR}/lib/portaudio/lib
 )
 
-# Install header files
-install(FILES ${HEADERS} DESTINATION include/CppDub)
+# Link the libraries to the cppdub library
+target_link_libraries(cppdub
+    PRIVATE
+    ${FFMPEG_LIBRARIES}
+    ${PORTAUDIO_LIBRARIES}
+)
 
-# Optional: Add custom logic for installing external dependencies if necessary
+# Specify the output directory for the built library
+set_target_properties(cppdub PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
+)
+
+# Optionally: Create an install target
+install(TARGETS cppdub DESTINATION lib)
+install(DIRECTORY include/ DESTINATION include)
+
+# Optionally: Add a target for testing or examples
+# add_subdirectory(tests)
+# add_subdirectory(examples)
