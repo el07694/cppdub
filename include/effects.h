@@ -1,13 +1,10 @@
-
-
 #ifndef EFFECTS_H
 #define EFFECTS_H
 #include "utils.h"
-#include "audio_segment.h" // For AudioSegment class
-#include <cmath>           // For math functionalities
-#include <vector>          // For dynamic arrays (equivalent to Python's list)
-#include "silence.h"       // For split_on_silence
-#include "exceptions.h"    // For TooManyMissingFrames, InvalidDuration
+#include <cmath>
+#include <vector>
+#include "silence.h"
+#include "exceptions.h"
 
 #include <functional>
 

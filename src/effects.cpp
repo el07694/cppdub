@@ -3,7 +3,7 @@
 #include <vector>
 #include <cmath>
 #include <array>
-using namespace cppdub;
+
 namespace cppdub {
 
 
