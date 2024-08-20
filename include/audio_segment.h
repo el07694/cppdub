@@ -316,7 +316,7 @@ public:
 
 private:
     // Helper method to convert milliseconds to frame count
-    uint32_t frame_count(uint32_t ms) const;
+    uint32_t frame_count_(uint32_t ms) const;
 
     // Initialization function for FFmpeg
     void initialize_ffmpeg();

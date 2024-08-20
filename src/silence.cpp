@@ -3,7 +3,9 @@
 #include <iterator>
 #include <stdexcept>
 
-std::vector<std::pair<int, int>> detect_silence(const AudioSegment& audio_segment, int min_silence_len = 1000, double silence_thresh = -16, int seek_step = 1) {
+namespace cppdub {
+
+std::vector<std::pair<int, int>> detect_silence(const cppdub::AudioSegment& audio_segment, int min_silence_len = 1000, double silence_thresh = -16, int seek_step = 1) {
     int seg_len = audio_segment.length_in_milliseconds(); // Get length of the audio segment in milliseconds
 
     // Check if the audio segment is shorter than the minimum silence length
@@ -21,7 +23,7 @@ std::vector<std::pair<int, int>> detect_silence(const AudioSegment& audio_segmen
     // Iterate over the audio segment in chunks
     for (int i = 0; i <= last_slice_start; i += seek_step) {
         // Slice the audio segment
-        AudioSegment audio_slice = AudioSegment::_spawn(audio_segment.get_sample_slice(static_cast<uint32_t>(i),static_cast<uint32_t>(i+min_silence_len)));
+        AudioSegment audio_slice = audio_segment._spawn(audio_segment.get_sample_slice(static_cast<uint32_t>(i),static_cast<uint32_t>(i+min_silence_len)));
         
         // Check if the RMS of the slice is below the threshold
         if (audio_slice.rms() <= silence_threshold) {
@@ -31,7 +33,7 @@ std::vector<std::pair<int, int>> detect_silence(const AudioSegment& audio_segmen
 
     // Ensure the last portion is included in the search
     if (last_slice_start % seek_step != 0) {
-        AudioSegment audio_slice = AudioSegment::_spawn(audio_segment.get_sample_slice(static_cast<uint32_t>(last_slice_start),static_cast<uint32_t>(last_slice_start + min_silence_len)));
+        AudioSegment audio_slice = audio_segment._spawn(audio_segment.get_sample_slice(static_cast<uint32_t>(last_slice_start),static_cast<uint32_t>(last_slice_start + min_silence_len)));
         if (audio_slice.rms() <= silence_threshold) {
             silence_starts.push_back(last_slice_start);
         }
@@ -64,7 +66,7 @@ std::vector<std::pair<int, int>> detect_silence(const AudioSegment& audio_segmen
     return silent_ranges;
 }
 
-std::vector<std::pair<int, int>> detect_nonsilent(const AudioSegment& audio_segment, int min_silence_len = 1000, double silence_thresh = -16, int seek_step = 1) {
+std::vector<std::pair<int, int>> detect_nonsilent(const cppdub::AudioSegment& audio_segment, int min_silence_len = 1000, double silence_thresh = -16, int seek_step = 1) {
     std::vector<std::pair<int, int>> silent_ranges = detect_silence(audio_segment, min_silence_len, silence_thresh, seek_step);
     int seg_len = audio_segment.length_in_milliseconds(); // Get length of the audio segment in milliseconds
 
@@ -114,7 +116,7 @@ std::vector<std::pair<int, int>> pairwise(const std::vector<std::pair<int, int>>
     return result;
 }
 
-std::vector<AudioSegment> split_on_silence(const AudioSegment& audio_segment, int min_silence_len = 1000, double silence_thresh = -16, int keep_silence = 100, int seek_step = 1) {
+std::vector<cppdub::AudioSegment> split_on_silence(cppdub::AudioSegment& audio_segment, int min_silence_len = 1000, double silence_thresh = -16, int keep_silence = 100, int seek_step = 1) {
     if (keep_silence < 0) {
         throw std::invalid_argument("keep_silence cannot be negative");
     }
@@ -143,12 +145,12 @@ std::vector<AudioSegment> split_on_silence(const AudioSegment& audio_segment, in
     }
 
     // Create segments from adjusted ranges
-    std::vector<AudioSegment> segments;
+    std::vector<cppdub::AudioSegment> segments;
     for (const auto& range : output_ranges) {
         int start = std::max(range.first, 0);
         int end = std::min(range.second, static_cast<int>(audio_segment.length_in_milliseconds()));
         if (start < end) {
-            segments.push_back(AudioSegment::_spawn(audio_segment.get_sample_slice(static_cast<uint32_t>(start),static_cast<uint32_t>(end))));
+            segments.push_back(audio_segment._spawn(audio_segment.get_sample_slice(static_cast<uint32_t>(start),static_cast<uint32_t>(end))));
         }
     }
 
@@ -165,7 +167,7 @@ int detect_leading_silence(const AudioSegment& sound, double silence_threshold =
 
     while (trim_ms + chunk_size <= sound.length_in_milliseconds()) {
         // Slice the audio segment and calculate the dBFS value
-        AudioSegment chunk = AudioSegment::_spawn(sound.get_sample_slice(static_cast<uint32_t>(trim_ms),static_cast<uint32_t>(trim_ms + chunk_size)));
+        AudioSegment chunk = sound._spawn(sound.get_sample_slice(static_cast<uint32_t>(trim_ms),static_cast<uint32_t>(trim_ms + chunk_size)));
         double chunk_dBFS = static_cast<double>(chunk.dBFS()); // Assume dBFS method is available in AudioSegment
 
         if (chunk_dBFS >= silence_threshold) {
@@ -177,4 +179,7 @@ int detect_leading_silence(const AudioSegment& sound, double silence_threshold =
 
     // Return the end of the silence or the length of the segment
     return std::min(trim_ms, static_cast<int>(sound.length_in_milliseconds()));
+}
+
+
 }

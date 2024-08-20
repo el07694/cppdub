@@ -1,16 +1,23 @@
+
+
 #ifndef EFFECTS_H
 #define EFFECTS_H
 
+#include "audio_segment.h" // For AudioSegment class
 #include <cmath>           // For math functionalities
 #include <vector>          // For dynamic arrays (equivalent to Python's list)
 #include "silence.h"       // For split_on_silence
 #include "exceptions.h"    // For TooManyMissingFrames, InvalidDuration
-#include "audio_segment.h" // For AudioSegment class
+
 #include <functional>
 
 
 
-void apply_mono_filter_to_each_channel(AudioSegment& seg, std::function<AudioSegment(const AudioSegment&)> filter_fn);
+namespace cppdub {
+
+
+
+AudioSegment apply_mono_filter_to_each_channel(AudioSegment& seg, std::function<AudioSegment(const AudioSegment&)> filter_fn);
 
 // Function to normalize audio segment
 void normalize(AudioSegment& seg, double headroom = 0.1);
@@ -44,5 +51,5 @@ AudioSegment pan(const AudioSegment& seg, double pan_amount);
 // Function to apply gain to left and right channels of a stereo audio segment
 AudioSegment apply_gain_stereo(const AudioSegment& seg, double left_gain = 0.0, double right_gain = 0.0);
 
-									 
+}
 #endif // EFFECTS_H

@@ -5,9 +5,11 @@
 #include "utils.h"
 #include <vector>
 #include "portaudio.h"
+namespace cppdub {
 
 void _play_with_ffplay(const AudioSegment& audio_segment);
 bool _play_with_portaudio_safe(const AudioSegment& audio_segment);
 void play(const AudioSegment& audio_segment);
 
+}
 #endif // PLAYBACK_H

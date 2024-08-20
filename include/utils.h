@@ -5,7 +5,9 @@
 #include "audio_segment.cpp"
 #endif
 
-
+#ifndef EFFECTS_H
+#include "effects.cpp"
+#endif
 
 #include <string>
 #include <vector>
@@ -42,7 +44,7 @@ std::string fsdecode(const std::filesystem::path& path);
 std::string fsdecode(const std::string& path);
 nlohmann::json get_extra_info(const std::string& stderr_);
 // Function to execute a command and capture its output
-std::string exec_command(const std::string& command);
+std::string exec_command_(const std::string& command);
 // Function to get media information as JSON
 nlohmann::json mediainfo_json(const std::string& file_path, int read_ahead_limit = -1);
 nlohmann::json mediainfo(const std::string& file_path);

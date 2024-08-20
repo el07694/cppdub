@@ -9,7 +9,9 @@
 #include <numeric>
 #include <cstring>  // for std::memcpy
 
-float db_to_float(float db, bool using_amplitude = true) {
+namespace cppdub {
+
+float db_to_float(float db, bool using_amplitude) {
     if (using_amplitude) {
         return std::pow(10.0, db / 20.0);
     } else { // using power
@@ -47,10 +49,12 @@ AudioSegment SignalGenerator::to_audio_segment(double duration, double volume) {
 
     // Convert vector to byte data (equivalent to array.tobytes() in Python)
     std::vector<uint8_t> byte_data(sample_data.size() * sample_width);
-    std::memcpy(byte_data.data(), sample_data.data(), sample_data.size() * sizeof(int16_t));
+    //std::memcpy(byte_data.data(), sample_data.data(), sample_data.size() * sizeof(int16_t));
 
     // Create and return an AudioSegment object
-    return AudioSegment::_spawn(byte_data);
+    std::vector<char> char_vec(byte_data.begin(), byte_data.end());
+    AudioSegment new_segment;
+    return new_segment._spawn(char_vec);
 }
 
 // Pure virtual function to be implemented by subclasses
@@ -157,4 +161,7 @@ std::vector<double> WhiteNoise::generate() {
     }
 
     return samples;
+}
+
+
 }

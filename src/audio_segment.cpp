@@ -113,7 +113,7 @@ AudioSegment::AudioSegment(const char* data, size_t size, const std::map<std::st
 AudioSegment::AudioSegment(std::vector<char> data, uint16_t sample_width, uint32_t frame_rate, 
                            uint16_t channels, uint32_t frame_width)
     : data_(std::move(data)), sample_width_(sample_width), frame_rate_(frame_rate), 
-      channels_(channels), frame_width_(frame_width) {}
+      channels_(channels), frame_width_(frame_width), data_size_(data.size()) {}
 	  
 AudioSegment::AudioSegment(const std::vector<uint8_t>& data) {
     data_.assign(data.begin(), data.end());  // Convert from uint8_t to char
@@ -1336,7 +1336,7 @@ std::vector<AudioSegment> AudioSegment::sync(const std::vector<AudioSegment>& se
 }
 
 // Convert milliseconds to frame count
-uint32_t AudioSegment::frame_count(uint32_t ms) const {
+uint32_t AudioSegment::frame_count_(uint32_t ms) const {
     return static_cast<uint32_t>((ms * frame_rate_) / 1000);
 }
 

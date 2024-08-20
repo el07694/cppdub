@@ -7,6 +7,8 @@
 #include <map>
 #include "audio_segment.h"
 
+namespace cppdub {
+
 void _play_with_ffplay(const AudioSegment& audio_segment) {
     // Get the player name (e.g., "ffplay")
     std::string PLAYER = get_player_name();
@@ -142,4 +144,6 @@ void play(const AudioSegment& audio_segment) {
     if (!played_with_portaudio) {
         _play_with_ffplay(audio_segment);
     }
+}
+
 }

@@ -33,6 +33,8 @@
 #include <cstdlib>
 #include <unordered_map>
 
+namespace cppdub{
+
 // Constants
 const std::map<int, int> FRAME_WIDTHS = {
     {8, 1},
@@ -61,7 +63,7 @@ int get_frame_width(int bit_depth) {
     throw std::invalid_argument("Unsupported bit depth");
 }
 
-std::string get_array_type(int bit_depth, bool signed_type = true) {
+std::string get_array_type(int bit_depth, bool signed_type) {
     auto it = ARRAY_TYPES.find(bit_depth);
     if (it != ARRAY_TYPES.end()) {
         std::string type = it->second;
@@ -82,7 +84,7 @@ std::pair<int, int> get_min_max_value(int bit_depth) {
 }
 
 // Custom function to handle file-like operations similar to Python
-std::pair<std::unique_ptr<std::FILE, decltype(&std::fclose)>, bool> _fd_or_path_or_tempfile(int* fd, const std::string& path = "", bool tempfile = true, const std::string& mode = "w+b") {
+std::pair<std::unique_ptr<std::FILE, decltype(&std::fclose)>, bool> _fd_or_path_or_tempfile(int* fd, const std::string& path, bool tempfile, const std::string& mode) {
     
     bool close_fd = false;
 
@@ -164,7 +166,7 @@ int main() {
 }
 */
 
-float db_to_float(float db, bool using_amplitude = true) {
+float db_to_float(float db, bool using_amplitude) {
     if (using_amplitude) {
         return std::pow(10.0, db / 20.0);
     } else { // using power
@@ -172,7 +174,7 @@ float db_to_float(float db, bool using_amplitude = true) {
     }
 }
 
-float ratio_to_db(float ratio, float val2 = 0.0f, bool using_amplitude = true) {
+float ratio_to_db(float ratio, float val2, bool using_amplitude) {
     // Handle ratio of zero
     if (ratio == 0) {
         return -std::numeric_limits<float>::infinity();
@@ -207,10 +209,10 @@ std::vector<cppdub::AudioSegment> make_chunks(const cppdub::AudioSegment& audio_
         size_t end = std::min(start + chunk_length_ms, total_length);
         
         // Get the slice using the get_sample_slice method
-        uint32_t start_sample = static_cast<uint32_t>((static_cast<int>(range.start_time_ms) * frame_rate_) / 1000);
-        uint32_t end_sample = static_cast<uint32_t>((static_cast<int>(range.end_time_ms) * frame_rate_) / 1000);
+        uint32_t start_sample = static_cast<uint32_t>((static_cast<int>(start) * audio_segment.get_frame_rate()) / 1000);
+        uint32_t end_sample = static_cast<uint32_t>((static_cast<int>(end) * audio_segment.get_frame_rate()) / 1000);
         std::vector<char> slice_123 = audio_segment.get_sample_slice(start_sample, end_sample);
-        chunks.push_back(cppdub::AudioSegment::_spawn(slice_123));
+        chunks.push_back(audio_segment._spawn(slice_123));
     }
 
     return chunks;
@@ -375,7 +377,8 @@ nlohmann::json get_extra_info(const std::string& stderr_) {
 }
 
 // Overload for single string command
-std::string exec_command(const std::string& command) {
+
+std::string exec_command_(const std::string& command) {
     std::array<char, 128> buffer;
     std::string result;
     
@@ -394,21 +397,23 @@ std::string exec_command(const std::string& command) {
     return result;
 }
 
-nlohmann::json mediainfo_json(const std::string& file_path, int read_ahead_limit = -1) {
+nlohmann::json mediainfo_json(const std::string& file_path, int read_ahead_limit) {
     std::string prober = get_prober_name();
-    
-    std::vector<std::string> command_args = {"-v", "info", "-show_format", "-show_streams"};
+
+    std::vector<std::string> command_args = { "-v", "info", "-show_format", "-show_streams" };
     std::string stdin_data;
     bool use_stdin = false;
-    
+
     try {
         command_args.push_back(fsdecode(file_path));
-    } catch (const std::exception&) {
+    }
+    catch (const std::exception&) {
         if (prober == "ffprobe") {
             command_args.push_back("-read_ahead_limit");
             command_args.push_back(std::to_string(read_ahead_limit));
             command_args.push_back("cache:pipe:0");
-        } else {
+        }
+        else {
             command_args.push_back("-");
         }
         use_stdin = true;
@@ -429,7 +434,8 @@ nlohmann::json mediainfo_json(const std::string& file_path, int read_ahead_limit
     nlohmann::json info;
     try {
         info = nlohmann::json::parse(output);
-    } catch (const nlohmann::json::parse_error&) {
+    }
+    catch (const nlohmann::json::parse_error&) {
         return nullptr; // Or handle error appropriately
     }
 
@@ -438,7 +444,7 @@ nlohmann::json mediainfo_json(const std::string& file_path, int read_ahead_limit
     auto audio_streams = info["streams"].get<std::vector<nlohmann::json>>();
     auto it = std::find_if(audio_streams.begin(), audio_streams.end(), [](const nlohmann::json& stream) {
         return stream["codec_type"] == "audio";
-    });
+        });
 
     if (it == audio_streams.end()) {
         return info; // No audio streams found
@@ -450,29 +456,34 @@ nlohmann::json mediainfo_json(const std::string& file_path, int read_ahead_limit
         if (!stream.contains(prop) || stream[prop] == 0) {
             stream[prop] = value;
         }
-    };
+        };
 
     for (const auto& token : extra_info[stream["index"].get<int>()]) {
+        std::string token_str = token.get<std::string>();  // Ensure token is a string
+
         std::regex re_sample_fmt(R"(([su][0-9]{1,2}p?) \(([0-9]{1,2}) bit\)$)");
         std::regex re_sample_fmt_default(R"(([su][0-9]{1,2}p?)( \(default\))?$)");
         std::regex re_float(R"(flt(p)? \(default\)?)");
         std::regex re_double(R"(dbl(p)? \(default\)?)");
 
         std::smatch match;
-        if (std::regex_match(token, match, re_sample_fmt)) {
+        if (std::regex_match(token_str, match, re_sample_fmt)) {
             set_property("sample_fmt", match[1].str());
             set_property("bits_per_sample", std::stoi(match[2].str()));
-            set_property("bits_per_raw_sample", std::stoi(match[3].str()));
-        } else if (std::regex_match(token, match, re_sample_fmt_default)) {
+            set_property("bits_per_raw_sample", std::stoi(match[2].str()));  // Corrected to match[2] as the third capture group was removed
+        }
+        else if (std::regex_match(token_str, match, re_sample_fmt_default)) {
             set_property("sample_fmt", match[1].str());
-            set_property("bits_per_sample", std::stoi(match[2].str()));
-            set_property("bits_per_raw_sample", std::stoi(match[2].str()));
-        } else if (std::regex_match(token, match, re_float)) {
-            set_property("sample_fmt", token);
+            set_property("bits_per_sample", 16);  // Defaulting to 16 bits for this case if match[2] does not exist
+            set_property("bits_per_raw_sample", 16);
+        }
+        else if (std::regex_match(token_str, match, re_float)) {
+            set_property("sample_fmt", token_str);
             set_property("bits_per_sample", 32);
             set_property("bits_per_raw_sample", 32);
-        } else if (std::regex_match(token, match, re_double)) {
-            set_property("sample_fmt", token);
+        }
+        else if (std::regex_match(token_str, match, re_double)) {
+            set_property("sample_fmt", token_str);
             set_property("bits_per_sample", 64);
             set_property("bits_per_raw_sample", 64);
         }
@@ -481,16 +492,17 @@ nlohmann::json mediainfo_json(const std::string& file_path, int read_ahead_limit
     return info;
 }
 
+
 nlohmann::json mediainfo(const std::string& file_path) {
     std::string prober = get_prober_name();
     std::string command = prober + " -v quiet -show_format -show_streams " + file_path;
 
-    std::string output = exec_command(command);
+    std::string output = exec_command_(command);
 
     // Retry command without 'quiet' if output is empty
     if (output.empty()) {
         command = prober + " -show_format -show_streams " + file_path;
-        output = exec_command(command);
+        output = exec_command_(command);
     }
 
     // Regex to match key-value pairs
@@ -530,7 +542,7 @@ std::pair<std::set<std::string>, std::set<std::string>> get_supported_codecs() {
     if (!is_cached) {
         std::string encoder = "ffmpeg"; // Set dynamically based on your environment if needed
         std::string command = encoder + " -codecs";
-        std::string output = exec_command(command);
+        std::string output = exec_command_(command);
 
         std::regex rgx(R"(^([D.][E.][AVS.][I.][L.][S.]) (\w*) +(.*))");
         std::smatch match;
@@ -588,11 +600,16 @@ AudioSegment stereo_to_ms(const AudioSegment& stereo_segment) {
     auto right_channel = channels[1];
 
     // Create mid and side channels
-    auto mid_channel = left_channel.overlay(right_channel);
-    auto side_channel = left_channel.overlay(right_channel.invert_phase());
-
+    int position = 0;
+    bool loop = false;
+    int times = 1;
+    int gain_during_overlay = 0;
+    
+    AudioSegment mid_channel = left_channel.overlay(right_channel, position, loop, times, gain_during_overlay);
+    AudioSegment side_channel = left_channel.overlay(invert_phase(right_channel), position, loop, times, gain_during_overlay);
+    const std::vector<AudioSegment>& mono_segments = { mid_channel ,side_channel };
     // Combine mid and side into a new AudioSegment
-    return AudioSegment::from_mono_audiosegments(mid_channel, side_channel);
+    return AudioSegment::from_mono_audiosegments(mono_segments);
 }
 
 // Convert mid-side to stereo
@@ -609,9 +626,16 @@ AudioSegment ms_to_stereo(const AudioSegment& ms_segment) {
     auto side_channel = channels[1];
 
     // Create left and right channels
-    auto left_channel = mid_channel.overlay(side_channel);
-    auto right_channel = mid_channel.overlay(side_channel.invert_phase());
+    int position = 0;
+    bool loop = false;
+    int times = 1;
+    int gain_during_overlay = 0;
+    auto left_channel = mid_channel.overlay(side_channel,position,loop,times,gain_during_overlay);
+    auto right_channel = mid_channel.overlay(invert_phase(side_channel), position, loop, times, gain_during_overlay);
 
     // Combine left and right into a new AudioSegment
-    return AudioSegment::from_mono_audiosegments(left_channel, right_channel);
+    const std::vector<AudioSegment>& mono_segments = { mid_channel ,side_channel };
+    // Combine mid and side into a new AudioSegment
+    return AudioSegment::from_mono_audiosegments(mono_segments);
+}
 }

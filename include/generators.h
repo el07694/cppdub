@@ -7,8 +7,10 @@
 #include <cmath>
 #include <random>
 #include "audio_segment.h"  // Include audio_segment.h
-class AudioSegment;  // Forward declaration of AudioSegment
-float db_to_float(float db, bool using_amplitude = true);
+#include "utils.h"
+
+namespace cppdub{
+float db_to_float(float db, bool using_amplitude);
 
 class SignalGenerator {
 public:
@@ -95,5 +97,6 @@ private:
     std::default_random_engine generator;
     std::uniform_real_distribution<double> distribution{-1.0, 1.0};
 };
+}
 
 #endif // SIGNAL_GENERATOR_H

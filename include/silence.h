@@ -3,7 +3,9 @@
 
 #include <vector>
 #include <algorithm>
-#include "audio_segment.cpp"
+#ifndef AUDIO_SEGMENT_H
+#include "audio_segment.h"
+#endif
 double db_to_float(double db);
 
 // Function to detect silence in an AudioSegment

@@ -1,11 +1,15 @@
 #include "effects.h"
-
+#ifndef UTILS_H
+#include "utils.h"
+#endif
 #include <vector>
-
 #include <cmath>
 #include <array>
 
-void apply_mono_filter_to_each_channel(AudioSegment& seg, std::function<AudioSegment(const AudioSegment&)> filter_fn) {
+namespace cppdub {
+
+
+AudioSegment apply_mono_filter_to_each_channel(AudioSegment& seg, std::function<AudioSegment(const AudioSegment&)> filter_fn) {
     int n_channels = static_cast<int>(seg.get_channels());
     
     // Split the segment into mono channels
@@ -21,7 +25,7 @@ void apply_mono_filter_to_each_channel(AudioSegment& seg, std::function<AudioSeg
     }
     
     // Assuming sample_width_ is the number of bytes per sample
-    int sample_size = static_cast<int>(seg.sample_width_);
+    int sample_size = static_cast<int>(seg.get_sample_width());
     
     if (channel_segs.empty()) {
         throw std::runtime_error("No channels available for reassembly");
@@ -52,13 +56,13 @@ void apply_mono_filter_to_each_channel(AudioSegment& seg, std::function<AudioSeg
     }
     
     // Spawn a new AudioSegment with the processed data
-    seg._spawn(out_data);
+    return seg._spawn(out_data);
 }
 
-void normalize(AudioSegment& seg, double headroom = 0.1) {
+void normalize(AudioSegment& seg, double headroom) {
     // Get the peak sample value
     double peak_sample_val = seg.max();
-    double max_possible_amplitude = seg.get_max_possible_amplitude();
+    double max_possible_amplitude = seg.max_possible_amplitude();
     
     // If the max is 0, this audio segment is silent and can't be normalized
     if (peak_sample_val == 0) {
@@ -69,13 +73,13 @@ void normalize(AudioSegment& seg, double headroom = 0.1) {
     double target_peak = max_possible_amplitude * db_to_float(-headroom);
 
     // Calculate the needed boost in decibels
-    double needed_boost = ratio_to_db(target_peak / peak_sample_val);
+    double needed_boost = cppdub::ratio_to_db(target_peak / peak_sample_val);
     
     // Apply the gain
-    seg.apply_gain(needed_boost);
+    seg = seg + needed_boost;
 }
 
-AudioSegment speedup(const AudioSegment& seg, double playback_speed = 1.5, int chunk_size = 150, int crossfade = 25) {
+AudioSegment speedup(const AudioSegment& seg, double playback_speed, int chunk_size, int crossfade) {
     // Portion of audio to keep
     double atk = 1.0 / playback_speed;
 
@@ -112,14 +116,16 @@ AudioSegment speedup(const AudioSegment& seg, double playback_speed = 1.5, int c
     return out;
 }
 
-AudioSegment strip_silence(const AudioSegment& seg, int silence_len = 1000, int silence_thresh = -16, int padding = 100) {
+AudioSegment strip_silence(AudioSegment& seg, int silence_len, int silence_thresh, int padding) {
     // Check if padding is valid
     if (padding > silence_len) {
         throw std::invalid_argument("padding cannot be longer than silence_len");
     }
 
     // Split the audio segment on silence
-    std::vector<AudioSegment> chunks = split_on_silence(seg, silence_len, silence_thresh, padding);
+    std::vector<cppdub::AudioSegment> chunks = split_on_silence(seg, silence_len, silence_thresh, padding);
+
+
     int crossfade = padding / 2;
 
     // If no chunks are found, return the original segment
@@ -136,12 +142,12 @@ AudioSegment strip_silence(const AudioSegment& seg, int silence_len = 1000, int 
     return result;
 }
 
-AudioSegment compress_dynamic_range(const AudioSegment& seg, double threshold = -20.0, double ratio = 4.0, double attack = 5.0, double release = 50.0) {
+AudioSegment compress_dynamic_range(const AudioSegment& seg, double threshold, double ratio, double attack, double release) {
     double thresh_rms = seg.max_possible_amplitude() * db_to_float(threshold);
 
     int look_frames = static_cast<int>(seg.frame_count(attack));
     auto rms_at = [&](int frame_i) {
-        return AudioSegment::_spawn(seg.get_sample_slice(static_cast<uint32_t>(frame_i - look_frames), static_cast<uint32_t>(frame_i))).rms();
+        return seg._spawn(seg.get_sample_slice(static_cast<uint32_t>(frame_i - look_frames), static_cast<uint32_t>(frame_i))).rms();
     };
 
     auto db_over_threshold = [&](double rms) {
@@ -175,7 +181,7 @@ AudioSegment compress_dynamic_range(const AudioSegment& seg, double threshold = 
         //auto frame = seg.get_frame(i); !!! I CHANGE THIS TO THE FOLLOWING !!!
         std::vector<char> frame = seg.get_sample_slice(static_cast<uint32_t>(i),static_cast<uint32_t>(i));
         if (attenuation != 0.0) {
-            frame = mul(frame, static_cast<uint32_t>(seg.sample_width_), static_cast<uint32_t>(db_to_float(-attenuation)));
+            frame = mul(frame, static_cast<uint32_t>(seg.get_sample_width()), static_cast<uint32_t>(db_to_float(-attenuation)));
         }
 
         output.insert(output.end(), frame.data(), frame.data() + frame.size());
@@ -185,13 +191,13 @@ AudioSegment compress_dynamic_range(const AudioSegment& seg, double threshold = 
 }
 
 // Function to invert the phase of the audio segment
-AudioSegment invert_phase(const AudioSegment& seg, std::pair<int, int> channels = {1, 1}) {
+AudioSegment invert_phase(const AudioSegment& seg, std::pair<int, int> channels) {
     if (channels == std::make_pair(1, 1)) {
         // Invert phase for the entire mono or stereo segment
-        std::vector<char> inverted = mul(seg.raw_data(), static_cast<int>(seg.sample_width_), -1.0);
+        std::vector<char> inverted = mul(seg.raw_data(), static_cast<int>(seg.get_sample_width()), -1.0);
         return seg._spawn(inverted);
     } else {
-        if (seg.channels() == 2) {
+        if (seg.get_channels() == 2) {
             // Split stereo into mono channels
             std::vector<AudioSegment> left_and_right = seg.split_to_mono();
 			AudioSegment left = left_and_right[0];
@@ -207,23 +213,23 @@ AudioSegment invert_phase(const AudioSegment& seg, std::pair<int, int> channels 
             // Combine mono channels back into a stereo segment
             return seg.from_mono_audiosegments({left, right});
         } else {
-            throw std::runtime_error("Can't implicitly convert an AudioSegment with " + std::to_string(seg.channels()) + " channels to stereo.");
+            throw std::runtime_error("Can't implicitly convert an AudioSegment with " + std::to_string(seg.get_channels()) + " channels to stereo.");
         }
     }
 }
 
 AudioSegment low_pass_filter(const AudioSegment& seg, double cutoff) {
     double RC = 1.0 / (cutoff * 2 * M_PI);
-    double dt = 1.0 / seg.frame_rate_;
+    double dt = 1.0 / seg.get_frame_rate();
     double alpha = dt / (RC + dt);
     
     // Get the raw data from the segment
-    std::vector<char> original_data = seg.data_;
+    std::vector<char> original_data = seg.raw_data();
     std::vector<char> filtered_data = original_data;
     
-    size_t frame_count = static_cast<size_t>((seg.length_in_milliseconds() * seg.frame_rate_) / 1000);
-    size_t num_channels = seg.channels_;
-    size_t sample_width = seg.sample_width_;
+    size_t frame_count = static_cast<size_t>((seg.length_in_milliseconds() * seg.get_frame_rate()) / 1000);
+    size_t num_channels = seg.get_channels();
+    size_t sample_width = seg.get_sample_width();
     
     // Convert raw data to sample array
     std::vector<int16_t> original_samples(frame_count * num_channels);
@@ -254,16 +260,16 @@ AudioSegment low_pass_filter(const AudioSegment& seg, double cutoff) {
 
 AudioSegment high_pass_filter(const AudioSegment& seg, double cutoff) {
     double RC = 1.0 / (cutoff * 2 * M_PI);
-    double dt = 1.0 / seg.frame_rate_;
+    double dt = 1.0 / seg.get_frame_rate();
     double alpha = RC / (RC + dt);
 
     // Get the raw data from the segment
-    std::vector<char> original_data = seg.data_;
+    std::vector<char> original_data = seg.raw_data();
     std::vector<char> filtered_data = original_data;
     
-    size_t frame_count = static_cast<size_t>((seg.length_in_milliseconds() * seg.frame_rate_) / 1000);
-    size_t num_channels = seg.channels_;
-    size_t sample_width = seg.sample_width_;
+    size_t frame_count = static_cast<size_t>((seg.length_in_milliseconds() * seg.get_frame_rate()) / 1000);
+    size_t num_channels = seg.get_channels();
+    size_t sample_width = seg.get_sample_width();
     
     // Convert raw data to sample array
     std::vector<int16_t> original_samples(frame_count * num_channels);
@@ -275,7 +281,7 @@ AudioSegment high_pass_filter(const AudioSegment& seg, double cutoff) {
     }
     
     // Get min and max value for the sample width
-    auto [minval, maxval] = get_min_max_value(seg.sample_width_ * 8);
+    auto [minval, maxval] = get_min_max_value(seg.get_sample_width() * 8);
 
     // Apply the high-pass filter
     std::vector<double> last_val(num_channels, 0.0);
@@ -290,7 +296,15 @@ AudioSegment high_pass_filter(const AudioSegment& seg, double cutoff) {
                 last_val[j] = original_samples[offset];
             }
             
-            filtered_samples[offset] = static_cast<int16_t>(std::min(std::max(last_val[j], minval), maxval));
+            // Ensure minval and maxval are of type int16_t
+            int16_t minval = static_cast<int16_t>(minval);
+            int16_t maxval = static_cast<int16_t>(maxval);
+
+            // Clamp the filtered value
+            filtered_samples[offset] = static_cast<int16_t>(
+                std::min<int16_t>(std::max<int16_t>(static_cast<int16_t>(last_val[j]), minval), maxval)
+                );
+
         }
     }
     
@@ -319,19 +333,19 @@ AudioSegment pan(const AudioSegment& seg, double pan_amount) {
     boost_db = boost_db / 2.0;
 
     if (pan_amount < 0) {
-        return seg.apply_gain_stereo(boost_db, reduce_db);
+        return apply_gain_stereo(seg,boost_db, reduce_db);
     } else {
-        return seg.apply_gain_stereo(reduce_db, boost_db);
+        return apply_gain_stereo(seg,reduce_db, boost_db);
     }
 }
 
 AudioSegment apply_gain_stereo(const AudioSegment& seg, double left_gain, double right_gain) {
     AudioSegment left, right;
 
-    if (seg.channels_ == 1) {
+    if (seg.get_channels() == 1) {
         // Mono to stereo conversion
         left = right = seg;
-    } else if (seg.channels_ == 2) {
+    } else if (seg.get_channels() == 2) {
         // Split stereo into left and right channels
         std::vector<AudioSegment> mono_channels = seg.split_to_mono();
         left = mono_channels[0];
@@ -345,15 +359,18 @@ AudioSegment apply_gain_stereo(const AudioSegment& seg, double left_gain, double
     double right_mult_factor = db_to_float(right_gain);
 
     // Apply gain to left and right channels
-    std::vector<char> left_data = mul(left.raw_data(), static_cast<int>(left.sample_width_), static_cast<int>(left_mult_factor));
-    left_data = tostereo(left_data, static_cast<int>(left.sample_width_), 1.0, 0.0);
+    std::vector<char> left_data = mul(left.raw_data(), static_cast<int>(left.get_sample_width()), static_cast<int>(left_mult_factor));
+    left_data = tostereo(left_data, static_cast<int>(left.get_sample_width()), 1.0, 0.0);
 
-    std::vector<char> right_data = mul(right.raw_data(), static_cast<int>(right.sample_width_), static_cast<int>(right_mult_factor));
-    right_data = tostereo(right_data, static_cast<int>(right.sample_width_), 0.0, 1.0);
+    std::vector<char> right_data = mul(right.raw_data(), static_cast<int>(right.get_sample_width()), static_cast<int>(right_mult_factor));
+    right_data = tostereo(right_data, static_cast<int>(right.get_sample_width()), 0.0, 1.0);
 
     // Combine left and right channels
-    std::vector<char> output_data = add(left_data, right_data, static_cast<int>(left.sample_width_) * 2);
+    std::vector<char> output_data = add(left_data, right_data, static_cast<int>(left.get_sample_width()) * 2);
 
     // Create and return new AudioSegment
     return seg._spawn(output_data);
+}
+
+
 }
