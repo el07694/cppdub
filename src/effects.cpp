@@ -1,7 +1,5 @@
 #include "effects.h"
-#ifndef UTILS_H
 #include "utils.h"
-#endif
 #include <vector>
 #include <cmath>
 #include <array>
@@ -73,7 +71,7 @@ void normalize(AudioSegment& seg, double headroom) {
     double target_peak = max_possible_amplitude * db_to_float(-headroom);
 
     // Calculate the needed boost in decibels
-    double needed_boost = cppdub::ratio_to_db(target_peak / peak_sample_val);
+    double needed_boost = static_cast<double>(   cppdub::ratio_to_db(   static_cast<float>(target_peak / peak_sample_val), 0.0f,true   )   );
     
     // Apply the gain
     seg = seg + needed_boost;

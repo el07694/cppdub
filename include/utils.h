@@ -21,9 +21,9 @@
 #include <cstdio>      // For std::FILE
 #include <memory>      // For std::unique_ptr
 #include <filesystem>
-
+using namespace nlohmann;
 namespace cppdub{
-    using namespace nlohmann;
+    
 // Constants
 extern const std::map<int, int> FRAME_WIDTHS; // Updated declaration
 extern const std::map<int, std::string> ARRAY_TYPES;
