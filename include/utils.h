@@ -2,11 +2,11 @@
 #define UTILS_H
 
 #ifndef AUDIO_SEGMENT_H
-#include "audio_segment.cpp"
+#include "audio_segment.h"
 #endif
 
 #ifndef EFFECTS_H
-#include "effects.cpp"
+#include "effects.h"
 #endif
 
 #include <string>
